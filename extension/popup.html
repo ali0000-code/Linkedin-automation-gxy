@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>LinkedIn Automation</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <div class="container">
+    <!-- Header -->
+    <div class="header">
+      <h2>LinkedIn Automation</h2>
+    </div>
+
+    <!-- Not logged in state -->
+    <div id="login-prompt" class="section hidden">
+      <p class="info-text">Please login to use the extension</p>
+      <button id="open-options" class="btn btn-primary">Open Settings</button>
+    </div>
+
+    <!-- Logged in state -->
+    <div id="logged-in-state" class="section hidden">
+      <!-- User info -->
+      <div class="user-info">
+        <span id="user-email" class="user-email-text"></span>
+        <button id="logout-btn" class="btn btn-link">Logout</button>
+      </div>
+
+      <!-- Extraction section -->
+      <div class="extraction-section">
+        <h3>Extract Prospects</h3>
+
+        <!-- Status messages -->
+        <div id="status-message" class="hidden"></div>
+
+        <!-- Progress counter -->
+        <div id="progress-section" class="progress-section hidden">
+          <p class="progress-text">
+            Fetching: <span id="current-count">0</span> / <span id="total-limit">100</span>
+          </p>
+          <div class="progress-bar-container">
+            <div id="progress-bar" class="progress-bar"></div>
+          </div>
+        </div>
+
+        <!-- Extract button -->
+        <button id="extract-btn" class="btn btn-primary btn-large">
+          Extract Prospects
+        </button>
+
+        <!-- Settings -->
+        <div class="settings-group">
+          <label class="label">
+            Extraction Limit:
+            <input
+              type="number"
+              id="limit-input"
+              class="input-number"
+              min="1"
+              max="100"
+              value="100"
+            >
+          </label>
+          <p class="help-text">Maximum profiles to extract (1-100)</p>
+        </div>
+
+        <!-- Stats -->
+        <div id="stats-section" class="stats-section hidden">
+          <hr>
+          <p class="stats-text">
+            Last extraction: <strong id="last-count">-</strong> prospects
+          </p>
+        </div>
+      </div>
+    </div>
+
+    <!-- Loading overlay -->
+    <div id="loading-overlay" class="loading-overlay hidden">
+      <div class="spinner"></div>
+    </div>
+  </div>
+
+  <!-- Scripts -->
+  <script src="services/storage.js"></script>
+  <script src="services/api.js"></script>
+  <script src="services/auth.js"></script>
+  <script src="popup.js"></script>
+</body>
+</html>

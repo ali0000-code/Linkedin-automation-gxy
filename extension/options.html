@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>LinkedIn Automation - Settings</title>
+  <link rel="stylesheet" href="options.css">
+</head>
+<body>
+  <div class="container">
+    <!-- Header -->
+    <div class="header">
+      <h1>LinkedIn Automation</h1>
+      <p class="subtitle">Extension Settings</p>
+    </div>
+
+    <!-- Main content -->
+    <div class="content">
+      <!-- Login Section -->
+      <section id="login-section" class="section">
+        <h2>Login</h2>
+        <p class="info-text">Connect to your LinkedIn Automation account</p>
+
+        <form id="login-form" class="form">
+          <div class="form-group">
+            <label for="email" class="label">Email Address</label>
+            <input
+              type="email"
+              id="email"
+              class="input"
+              placeholder="your@email.com"
+              required
+              autocomplete="email"
+            >
+          </div>
+
+          <div class="form-group">
+            <label for="password" class="label">Password</label>
+            <input
+              type="password"
+              id="password"
+              class="input"
+              placeholder="Enter your password"
+              required
+              autocomplete="current-password"
+            >
+          </div>
+
+          <button type="submit" class="btn btn-primary" id="login-btn">
+            Login
+          </button>
+
+          <div id="login-message" class="message hidden"></div>
+        </form>
+      </section>
+
+      <!-- Settings Section (shown when logged in) -->
+      <section id="settings-section" class="section hidden">
+        <h2>Settings</h2>
+
+        <!-- Logged in info -->
+        <div class="logged-in-info">
+          <p class="user-text">
+            Logged in as: <strong id="current-user">-</strong>
+          </p>
+          <button id="logout-btn" class="btn btn-secondary">Logout</button>
+        </div>
+
+        <hr class="divider">
+
+        <!-- API URL -->
+        <div class="form-group">
+          <label for="api-url" class="label">API URL</label>
+          <p class="help-text">Backend API endpoint (default: localhost:8000)</p>
+          <div class="input-group">
+            <input
+              type="text"
+              id="api-url"
+              class="input"
+              placeholder="http://localhost:8000/api"
+              value="http://localhost:8000/api"
+            >
+            <button id="save-api-url" class="btn btn-primary">Save</button>
+          </div>
+          <div id="api-url-message" class="message hidden"></div>
+        </div>
+
+        <hr class="divider">
+
+        <!-- Default Extraction Limit -->
+        <div class="form-group">
+          <label for="default-limit" class="label">Default Extraction Limit</label>
+          <p class="help-text">Maximum profiles to extract per session (1-100)</p>
+          <div class="input-group">
+            <input
+              type="number"
+              id="default-limit"
+              class="input"
+              min="1"
+              max="100"
+              value="100"
+            >
+            <button id="save-limit" class="btn btn-primary">Save</button>
+          </div>
+          <div id="limit-message" class="message hidden"></div>
+        </div>
+      </section>
+    </div>
+
+    <!-- Footer -->
+    <div class="footer">
+      <p>LinkedIn Automation Extension v1.0.0</p>
+    </div>
+
+    <!-- Loading overlay -->
+    <div id="loading-overlay" class="loading-overlay hidden">
+      <div class="spinner"></div>
+    </div>
+  </div>
+
+  <!-- Scripts -->
+  <script src="services/storage.js"></script>
+  <script src="services/api.js"></script>
+  <script src="services/auth.js"></script>
+  <script src="options.js"></script>
+</body>
+</html>
