@@ -9,10 +9,15 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * Message Template Model
  *
  * Represents a reusable message template for campaigns.
- * Two types: 'invitation' (connection request notes) and 'message' (direct messages).
+ * Three types: 'invitation' (connection request notes), 'message' (direct messages), and 'email'.
  */
 class MessageTemplate extends Model
 {
+    // Template type constants
+    const TYPE_INVITATION = 'invitation';
+    const TYPE_MESSAGE = 'message';
+    const TYPE_EMAIL = 'email';
+
     /**
      * The attributes that are mass assignable.
      *
@@ -22,6 +27,7 @@ class MessageTemplate extends Model
         'user_id',
         'name',
         'type',
+        'subject', // For email templates
         'content',
     ];
 
@@ -77,5 +83,36 @@ class MessageTemplate extends Model
     public function scopeMessage($query)
     {
         return $query->where('type', 'message');
+    }
+
+    /**
+     * Scope a query to only include email templates.
+     *
+     * @param \Illuminate\Database\Eloquent\Builder $query
+     * @return \Illuminate\Database\Eloquent\Builder
+     */
+    public function scopeEmail($query)
+    {
+        return $query->where('type', 'email');
+    }
+
+    /**
+     * Check if this is an email template.
+     *
+     * @return bool
+     */
+    public function isEmail(): bool
+    {
+        return $this->type === self::TYPE_EMAIL;
+    }
+
+    /**
+     * Check if this template requires a subject.
+     *
+     * @return bool
+     */
+    public function requiresSubject(): bool
+    {
+        return $this->type === self::TYPE_EMAIL;
     }
 }

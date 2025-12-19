@@ -2,8 +2,8 @@
 
 namespace Database\Seeders;
 
+use App\Models\CampaignAction;
 use Illuminate\Database\Seeder;
-use Illuminate\Support\Facades\DB;
 
 /**
  * Campaign Action Seeder
@@ -21,6 +21,7 @@ class CampaignActionSeeder extends Seeder
      * 2. Invite - Send connection request with optional message
      * 3. Message - Send direct message to existing connection
      * 4. Follow - Follow the prospect's profile
+     * 5. Email - Send email to prospect (requires extracted email)
      */
     public function run(): void
     {
@@ -32,14 +33,12 @@ class CampaignActionSeeder extends Seeder
                 'icon' => 'eye',
                 'requires_template' => false,
                 'requires_connection' => false,
-                'config' => json_encode([
+                'config' => [
                     'min_delay' => 2,
                     'max_delay' => 5,
-                ]),
+                ],
                 'is_active' => true,
                 'order' => 1,
-                'created_at' => now(),
-                'updated_at' => now(),
             ],
             [
                 'key' => 'invite',
@@ -48,15 +47,14 @@ class CampaignActionSeeder extends Seeder
                 'icon' => 'user-plus',
                 'requires_template' => true,
                 'requires_connection' => false,
-                'config' => json_encode([
+                'config' => [
                     'min_delay' => 3,
                     'max_delay' => 7,
                     'message_max_length' => 300,
-                ]),
+                    'template_type' => 'invitation',
+                ],
                 'is_active' => true,
                 'order' => 2,
-                'created_at' => now(),
-                'updated_at' => now(),
             ],
             [
                 'key' => 'message',
@@ -65,14 +63,13 @@ class CampaignActionSeeder extends Seeder
                 'icon' => 'message-square',
                 'requires_template' => true,
                 'requires_connection' => true,
-                'config' => json_encode([
+                'config' => [
                     'min_delay' => 5,
                     'max_delay' => 10,
-                ]),
+                    'template_type' => 'message',
+                ],
                 'is_active' => true,
                 'order' => 3,
-                'created_at' => now(),
-                'updated_at' => now(),
             ],
             [
                 'key' => 'follow',
@@ -81,23 +78,43 @@ class CampaignActionSeeder extends Seeder
                 'icon' => 'user-check',
                 'requires_template' => false,
                 'requires_connection' => false,
-                'config' => json_encode([
+                'config' => [
                     'min_delay' => 2,
                     'max_delay' => 4,
-                ]),
+                ],
                 'is_active' => true,
                 'order' => 4,
-                'created_at' => now(),
-                'updated_at' => now(),
+            ],
+            [
+                'key' => 'email',
+                'name' => 'Email',
+                'description' => 'Extract emails from prospects\' profiles and send personalized emails',
+                'icon' => 'mail',
+                'requires_template' => true,
+                'requires_connection' => false,
+                'config' => [
+                    'min_delay' => 3,
+                    'max_delay' => 7,
+                    'template_type' => 'email',
+                    'requires_tag' => true, // Must select a tag to filter prospects
+                ],
+                'is_active' => true,
+                'order' => 5,
             ],
         ];
 
-        DB::table('campaign_actions')->insert($actions);
+        foreach ($actions as $action) {
+            CampaignAction::updateOrCreate(
+                ['key' => $action['key']],
+                $action
+            );
+        }
 
         $this->command->info('✅ Campaign actions seeded successfully!');
         $this->command->info('   - Visit Profile');
         $this->command->info('   - Send Connection Request');
         $this->command->info('   - Send Message');
         $this->command->info('   - Follow Profile');
+        $this->command->info('   - Email');
     }
 }

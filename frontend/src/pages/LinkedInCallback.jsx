@@ -59,9 +59,15 @@ export default function LinkedInCallback() {
         setUser(userData.data);
 
         // Send token to Chrome extension
-        const extensionId = import.meta.env.VITE_EXTENSION_ID;
+        // Try to get extension ID from multiple sources:
+        // 1. Injected by webapp-connector.js (stored in localStorage)
+        // 2. Environment variable (fallback)
+        const extensionId =
+          localStorage.getItem('linkedin_automation_extension_id') ||
+          window.__LINKEDIN_AUTOMATION_EXTENSION_ID__ ||
+          import.meta.env.VITE_EXTENSION_ID;
 
-        if (extensionId && typeof chrome !== 'undefined' && chrome.runtime) {
+        if (extensionId && extensionId !== 'your_chrome_extension_id' && typeof chrome !== 'undefined' && chrome.runtime) {
           try {
             chrome.runtime.sendMessage(
               extensionId,

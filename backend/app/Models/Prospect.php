@@ -27,6 +27,7 @@ class Prospect extends Model
         'full_name',
         'profile_url',
         'profile_image_url',
+        'email', // Extracted from LinkedIn contact info
         'connection_status',
     ];
 
@@ -71,5 +72,39 @@ class Prospect extends Model
     public function actionQueue()
     {
         return $this->hasMany(ActionQueue::class);
+    }
+
+    /**
+     * Get all emails sent to this prospect.
+     */
+    public function sentEmails()
+    {
+        return $this->hasMany(SentEmail::class);
+    }
+
+    /**
+     * Check if this prospect has an email address.
+     */
+    public function hasEmail(): bool
+    {
+        return !empty($this->email);
+    }
+
+    /**
+     * Scope: Only prospects with email.
+     */
+    public function scopeWithEmail($query)
+    {
+        return $query->whereNotNull('email')->where('email', '!=', '');
+    }
+
+    /**
+     * Scope: Only prospects without email.
+     */
+    public function scopeWithoutEmail($query)
+    {
+        return $query->where(function ($q) {
+            $q->whereNull('email')->orWhere('email', '');
+        });
     }
 }

@@ -39,7 +39,7 @@ class LinkedInOAuthController extends Controller
         session(['oauth_state' => $state]);
 
         // Redirect to LinkedIn with state parameter
-        return Socialite::driver('linkedin-openid')
+        return Socialite::driver('linkedin')
             ->with(['state' => $state])
             ->redirect();
     }
@@ -65,7 +65,7 @@ class LinkedInOAuthController extends Controller
 
             // Get LinkedIn user data via Socialite (uses stateless mode to skip state validation)
             \Log::info('Attempting to get LinkedIn user via Socialite');
-            $linkedInUser = Socialite::driver('linkedin-openid')->stateless()->user();
+            $linkedInUser = Socialite::driver('linkedin')->stateless()->user();
 
             \Log::info('LinkedIn user retrieved', [
                 'id' => $linkedInUser->getId(),
@@ -182,7 +182,7 @@ class LinkedInOAuthController extends Controller
         $state = bin2hex(random_bytes(16));
         session(['oauth_state' => $state]);
 
-        $url = Socialite::driver('linkedin-openid')
+        $url = Socialite::driver('linkedin')
             ->with(['state' => $state])
             ->redirect()
             ->getTargetUrl();

@@ -48,7 +48,9 @@ class Campaign extends Model
         'name',
         'description',
         'status',
+        'emails_processed',
         'daily_limit',
+        'tag_id', // For filtering prospects by tag (used by email action)
         'total_prospects',
         'processed_prospects',
         'success_count',
@@ -66,6 +68,7 @@ class Campaign extends Model
         'processed_prospects' => 'integer',
         'success_count' => 'integer',
         'failure_count' => 'integer',
+        'emails_processed' => 'boolean',
         'started_at' => 'datetime',
         'completed_at' => 'datetime',
         'created_at' => 'datetime',
@@ -107,6 +110,14 @@ class Campaign extends Model
     }
 
     /**
+     * Get the tag used for filtering prospects in this campaign.
+     */
+    public function tag(): BelongsTo
+    {
+        return $this->belongsTo(Tag::class);
+    }
+
+    /**
      * Get the campaign steps for this campaign.
      */
     public function steps(): HasMany
@@ -138,6 +149,14 @@ class Campaign extends Model
     public function actionQueue(): HasMany
     {
         return $this->hasMany(ActionQueue::class);
+    }
+
+    /**
+     * Get the sent emails for this campaign.
+     */
+    public function sentEmails(): HasMany
+    {
+        return $this->hasMany(SentEmail::class);
     }
 
     /**

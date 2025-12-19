@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Extension;
 use App\Http\Controllers\Controller;
 use App\Models\ActionQueue;
 use App\Models\Campaign;
+use App\Models\Prospect;
 use App\Services\ActionQueueService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -359,6 +360,114 @@ class ExtensionController extends Controller
             'success' => true,
             'campaigns' => $campaignsData,
             'total_active' => $campaigns->count(),
+        ]);
+    }
+
+    /**
+     * Update prospect email after extraction from LinkedIn.
+     *
+     * PATCH /api/extension/prospects/{linkedinId}/email
+     *
+     * @param Request $request
+     * @param string $linkedinId LinkedIn ID (e.g., "john-doe-123456")
+     * @return JsonResponse
+     */
+    public function updateProspectEmail(Request $request, string $linkedinId): JsonResponse
+    {
+        $request->validate([
+            'email' => 'required|email|max:255',
+        ]);
+
+        $user = $request->user();
+
+        // Find the prospect belonging to this user by LinkedIn ID
+        $prospect = Prospect::where('linkedin_id', $linkedinId)
+            ->where('user_id', $user->id)
+            ->first();
+
+        if (!$prospect) {
+            return response()->json([
+                'success' => false,
+                'error' => 'Prospect not found',
+            ], 404);
+        }
+
+        // Update the email
+        $prospect->update(['email' => $request->input('email')]);
+
+        Log::info("Email updated for prospect {$prospect->id}", [
+            'user_id' => $user->id,
+            'prospect_id' => $prospect->id,
+            'linkedin_id' => $linkedinId,
+            'email' => $request->input('email'),
+        ]);
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Prospect email updated successfully',
+            'prospect' => [
+                'id' => $prospect->id,
+                'full_name' => $prospect->full_name,
+                'email' => $prospect->email,
+            ],
+        ]);
+    }
+
+    /**
+     * Get email extraction results for a campaign.
+     * Returns counts of prospects with/without emails after extraction.
+     *
+     * GET /api/extension/campaigns/{id}/extraction-results
+     *
+     * @param Request $request
+     * @param int $id Campaign ID
+     * @return JsonResponse
+     */
+    public function getExtractionResults(Request $request, int $id): JsonResponse
+    {
+        $user = $request->user();
+
+        $campaign = Campaign::where('id', $id)
+            ->where('user_id', $user->id)
+            ->with(['campaignProspects.prospect'])
+            ->first();
+
+        if (!$campaign) {
+            return response()->json([
+                'success' => false,
+                'error' => 'Campaign not found',
+            ], 404);
+        }
+
+        $withEmail = [];
+        $withoutEmail = [];
+
+        foreach ($campaign->campaignProspects as $cp) {
+            $prospect = $cp->prospect;
+            $prospectData = [
+                'id' => $prospect->id,
+                'full_name' => $prospect->full_name,
+                'profile_url' => $prospect->profile_url,
+                'linkedin_id' => $prospect->linkedin_id,
+                'email' => $prospect->email,
+            ];
+
+            if (!empty($prospect->email)) {
+                $withEmail[] = $prospectData;
+            } else {
+                $withoutEmail[] = $prospectData;
+            }
+        }
+
+        return response()->json([
+            'success' => true,
+            'campaign_id' => $campaign->id,
+            'campaign_name' => $campaign->name,
+            'total_prospects' => count($withEmail) + count($withoutEmail),
+            'with_email_count' => count($withEmail),
+            'without_email_count' => count($withoutEmail),
+            'with_email' => $withEmail,
+            'without_email' => $withoutEmail,
         ]);
     }
 

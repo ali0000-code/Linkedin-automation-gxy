@@ -28,6 +28,7 @@ class ActionQueueService
     const ACTION_INVITE = 'invite';
     const ACTION_MESSAGE = 'message';
     const ACTION_FOLLOW = 'follow';
+    const ACTION_EMAIL = 'email';
 
     /**
      * Status constants

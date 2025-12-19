@@ -64,8 +64,9 @@ class MessageTemplateController extends Controller
     {
         $validated = $request->validate([
             'name' => 'required|string|max:255',
-            'type' => 'required|in:invitation,message',
-            'content' => 'required|string|max:5000',
+            'type' => 'required|in:invitation,message,email',
+            'content' => 'required|string|max:10000',
+            'subject' => 'required_if:type,email|nullable|string|max:255',
         ]);
 
         // Additional validation for invitation messages (300 char limit)
@@ -74,6 +75,16 @@ class MessageTemplateController extends Controller
                 'message' => 'Invitation messages must be 300 characters or less',
                 'errors' => [
                     'content' => ['Invitation messages have a 300 character limit']
+                ]
+            ], 422);
+        }
+
+        // Additional validation for direct messages (5000 char limit)
+        if ($validated['type'] === 'message' && mb_strlen($validated['content']) > 5000) {
+            return response()->json([
+                'message' => 'Direct messages must be 5000 characters or less',
+                'errors' => [
+                    'content' => ['Direct messages have a 5000 character limit']
                 ]
             ], 422);
         }
@@ -130,7 +141,8 @@ class MessageTemplateController extends Controller
 
         $validated = $request->validate([
             'name' => 'sometimes|required|string|max:255',
-            'content' => 'sometimes|required|string|max:5000',
+            'content' => 'sometimes|required|string|max:10000',
+            'subject' => 'nullable|string|max:255',
         ]);
 
         // Additional validation for invitation messages (300 char limit)
@@ -139,6 +151,26 @@ class MessageTemplateController extends Controller
                 'message' => 'Invitation messages must be 300 characters or less',
                 'errors' => [
                     'content' => ['Invitation messages have a 300 character limit']
+                ]
+            ], 422);
+        }
+
+        // Additional validation for direct messages (5000 char limit)
+        if (isset($validated['content']) && $template->type === 'message' && mb_strlen($validated['content']) > 5000) {
+            return response()->json([
+                'message' => 'Direct messages must be 5000 characters or less',
+                'errors' => [
+                    'content' => ['Direct messages have a 5000 character limit']
+                ]
+            ], 422);
+        }
+
+        // Subject is required for email templates
+        if ($template->type === 'email' && isset($validated['subject']) && empty($validated['subject'])) {
+            return response()->json([
+                'message' => 'Subject is required for email templates',
+                'errors' => [
+                    'subject' => ['Email templates require a subject line']
                 ]
             ], 422);
         }

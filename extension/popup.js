@@ -15,8 +15,10 @@ let statusMessage;
 
 // DOM elements - Tabs
 let tabExtract;
+let tabEmail;
 let tabCampaigns;
 let extractionSection;
+let emailSection;
 let campaignsSection;
 
 // DOM elements - Extraction
@@ -30,6 +32,17 @@ let progressBar;
 let statsSection;
 let lastCountEl;
 
+// DOM elements - Email Extraction
+let extractEmailBtn;
+let emailStatusMessage;
+let emailProfileInfo;
+let emailProfileName;
+let emailResult;
+let emailFound;
+let emailNotFound;
+let extractedEmail;
+let saveEmailBtn;
+
 // DOM elements - Campaigns
 let queueStatusIcon;
 let queueStatusText;
@@ -42,6 +55,23 @@ let statsLimit;
 let startQueueBtn;
 let stopQueueBtn;
 let refreshCampaignsBtn;
+
+// DOM elements - Extraction Results Modal
+let extractionResultsModal;
+let closeModalBtn;
+let modalFoundCount;
+let modalNotFoundCount;
+let foundEmailsSection;
+let notFoundEmailsSection;
+let foundEmailsList;
+let notFoundEmailsList;
+let modalSendLaterBtn;
+let modalSaveBtn;
+
+// State
+let currentExtractedEmail = null;
+let currentProfileUrl = null;
+let currentExtractionCampaignId = null;
 
 /**
  * Initialize popup when DOM is ready
@@ -59,8 +89,10 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   // Get DOM elements - Tabs
   tabExtract = document.getElementById('tab-extract');
+  tabEmail = document.getElementById('tab-email');
   tabCampaigns = document.getElementById('tab-campaigns');
   extractionSection = document.getElementById('extraction-section');
+  emailSection = document.getElementById('email-section');
   campaignsSection = document.getElementById('campaigns-section');
 
   // Get DOM elements - Extraction
@@ -73,6 +105,17 @@ document.addEventListener('DOMContentLoaded', async () => {
   progressBar = document.getElementById('progress-bar');
   statsSection = document.getElementById('stats-section');
   lastCountEl = document.getElementById('last-count');
+
+  // Get DOM elements - Email Extraction
+  extractEmailBtn = document.getElementById('extract-email-btn');
+  emailStatusMessage = document.getElementById('email-status-message');
+  emailProfileInfo = document.getElementById('email-profile-info');
+  emailProfileName = document.getElementById('email-profile-name');
+  emailResult = document.getElementById('email-result');
+  emailFound = document.getElementById('email-found');
+  emailNotFound = document.getElementById('email-not-found');
+  extractedEmail = document.getElementById('extracted-email');
+  saveEmailBtn = document.getElementById('save-email-btn');
 
   // Get DOM elements - Campaigns
   queueStatusIcon = document.getElementById('queue-status-icon');
@@ -87,13 +130,30 @@ document.addEventListener('DOMContentLoaded', async () => {
   stopQueueBtn = document.getElementById('stop-queue-btn');
   refreshCampaignsBtn = document.getElementById('refresh-campaigns-btn');
 
+  // Get DOM elements - Extraction Results Modal
+  extractionResultsModal = document.getElementById('extraction-results-modal');
+  closeModalBtn = document.getElementById('close-modal-btn');
+  modalFoundCount = document.getElementById('modal-found-count');
+  modalNotFoundCount = document.getElementById('modal-not-found-count');
+  foundEmailsSection = document.getElementById('found-emails-section');
+  notFoundEmailsSection = document.getElementById('not-found-emails-section');
+  foundEmailsList = document.getElementById('found-emails-list');
+  notFoundEmailsList = document.getElementById('not-found-emails-list');
+  modalSendLaterBtn = document.getElementById('modal-send-later-btn');
+  modalSaveBtn = document.getElementById('modal-save-btn');
+
   // Set up event listeners - Common
   document.getElementById('open-options').addEventListener('click', openOptions);
   logoutBtn.addEventListener('click', handleLogoutClick);
 
   // Set up event listeners - Tabs
   tabExtract.addEventListener('click', () => switchTab('extract'));
+  tabEmail.addEventListener('click', () => switchTab('email'));
   tabCampaigns.addEventListener('click', () => switchTab('campaigns'));
+
+  // Set up event listeners - Email Extraction
+  extractEmailBtn.addEventListener('click', handleExtractEmailClick);
+  saveEmailBtn.addEventListener('click', handleSaveEmailClick);
 
   // Set up event listeners - Extraction
   extractBtn.addEventListener('click', handleExtractClick);
@@ -103,6 +163,14 @@ document.addEventListener('DOMContentLoaded', async () => {
   startQueueBtn.addEventListener('click', handleStartQueue);
   stopQueueBtn.addEventListener('click', handleStopQueue);
   refreshCampaignsBtn.addEventListener('click', loadCampaignData);
+
+  // Set up event listeners - Modal
+  closeModalBtn.addEventListener('click', hideExtractionResultsModal);
+  modalSendLaterBtn.addEventListener('click', handleSendLater);
+  modalSaveBtn.addEventListener('click', handleSaveAndViewMail);
+
+  // Check for pending extraction results notification
+  checkForExtractionResults();
 
   // Load saved extraction limit
   const savedLimit = await getExtractionLimit();
@@ -122,20 +190,30 @@ document.addEventListener('DOMContentLoaded', async () => {
 
 /**
  * Switch between tabs
- * @param {string} tab - 'extract' or 'campaigns'
+ * @param {string} tab - 'extract', 'email', or 'campaigns'
  */
 function switchTab(tab) {
+  // Remove active from all tabs
+  tabExtract.classList.remove('active');
+  tabEmail.classList.remove('active');
+  tabCampaigns.classList.remove('active');
+
+  // Hide all sections
+  extractionSection.classList.add('hidden');
+  emailSection.classList.add('hidden');
+  campaignsSection.classList.add('hidden');
+
   if (tab === 'extract') {
     tabExtract.classList.add('active');
-    tabCampaigns.classList.remove('active');
     extractionSection.classList.remove('hidden');
-    campaignsSection.classList.add('hidden');
-  } else {
-    tabExtract.classList.remove('active');
+  } else if (tab === 'email') {
+    tabEmail.classList.add('active');
+    emailSection.classList.remove('hidden');
+    // Check if on profile page
+    checkProfilePage();
+  } else if (tab === 'campaigns') {
     tabCampaigns.classList.add('active');
-    extractionSection.classList.add('hidden');
     campaignsSection.classList.remove('hidden');
-
     // Load campaign data when switching to campaigns tab
     loadCampaignData();
   }
@@ -598,4 +676,310 @@ chrome.runtime.onMessage.addListener((message) => {
   if (message.type === 'QUEUE_ERROR') {
     showStatus('Queue error: ' + message.message, 'error');
   }
+
+  // Handle extraction campaign completion
+  if (message.type === 'EXTRACTION_COMPLETE') {
+    console.log('[Popup] Received extraction complete notification:', message.campaignId);
+    showExtractionResultsForCampaign(message.campaignId);
+  }
 });
+
+// ==================== EMAIL EXTRACTION FUNCTIONS ====================
+
+/**
+ * Check if current tab is a LinkedIn profile page
+ */
+async function checkProfilePage() {
+  try {
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+
+    if (!tab || !tab.url) {
+      showEmailStatus('Could not get current tab', 'error');
+      extractEmailBtn.disabled = true;
+      return;
+    }
+
+    // Check if on LinkedIn profile page
+    if (tab.url.includes('linkedin.com/in/')) {
+      extractEmailBtn.disabled = false;
+      emailProfileInfo.classList.remove('hidden');
+
+      // Try to get profile name from tab title
+      const title = tab.title || '';
+      const namePart = title.split(' | ')[0] || title.split(' - ')[0] || 'Unknown';
+      emailProfileName.textContent = namePart;
+
+      // Store profile URL
+      currentProfileUrl = tab.url;
+    } else {
+      extractEmailBtn.disabled = true;
+      emailProfileInfo.classList.add('hidden');
+      showEmailStatus('Please navigate to a LinkedIn profile page', 'info');
+    }
+  } catch (error) {
+    console.error('[Popup] Error checking profile page:', error);
+    extractEmailBtn.disabled = true;
+  }
+}
+
+/**
+ * Handle extract email button click
+ */
+async function handleExtractEmailClick() {
+  console.log('[Popup] Extract email button clicked');
+
+  // Reset previous results
+  resetEmailResult();
+  hideEmailStatus();
+
+  try {
+    extractEmailBtn.disabled = true;
+    extractEmailBtn.textContent = 'Extracting...';
+
+    // Get active tab
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+
+    if (!tab) {
+      throw new Error('No active tab found');
+    }
+
+    // Check if on LinkedIn profile
+    if (!tab.url.includes('linkedin.com/in/')) {
+      throw new Error('Please navigate to a LinkedIn profile page');
+    }
+
+    // Send message to content script
+    chrome.tabs.sendMessage(tab.id, { type: 'EXTRACT_EMAIL' }, (response) => {
+      extractEmailBtn.disabled = false;
+      extractEmailBtn.textContent = 'Extract Email';
+
+      if (chrome.runtime.lastError) {
+        console.error('[Popup] Content script error:', chrome.runtime.lastError);
+        showEmailStatus('Content script not loaded. Please refresh the LinkedIn page.', 'error');
+        return;
+      }
+
+      console.log('[Popup] Email extraction response:', response);
+
+      if (response.success) {
+        emailResult.classList.remove('hidden');
+
+        if (response.email) {
+          // Email found
+          currentExtractedEmail = response.email;
+          extractedEmail.textContent = response.email;
+          emailFound.classList.remove('hidden');
+          emailNotFound.classList.add('hidden');
+          showEmailStatus('Email found! Click "Save to Prospect" to update the database.', 'success');
+        } else {
+          // No email found
+          emailFound.classList.add('hidden');
+          emailNotFound.classList.remove('hidden');
+          showEmailStatus('No email found for this user.', 'info');
+        }
+      } else {
+        showEmailStatus(response.error || 'Failed to extract email', 'error');
+      }
+    });
+
+  } catch (error) {
+    console.error('[Popup] Email extraction error:', error);
+    showEmailStatus(error.message, 'error');
+    extractEmailBtn.disabled = false;
+    extractEmailBtn.textContent = 'Extract Email';
+  }
+}
+
+/**
+ * Handle save email button click
+ */
+async function handleSaveEmailClick() {
+  if (!currentExtractedEmail || !currentProfileUrl) {
+    showEmailStatus('No email to save', 'error');
+    return;
+  }
+
+  try {
+    saveEmailBtn.disabled = true;
+    saveEmailBtn.textContent = 'Saving...';
+
+    // Extract LinkedIn ID from profile URL
+    const linkedinIdMatch = currentProfileUrl.match(/\/in\/([^\/\?]+)/);
+    const linkedinId = linkedinIdMatch ? linkedinIdMatch[1] : null;
+
+    if (!linkedinId) {
+      throw new Error('Could not extract LinkedIn ID from URL');
+    }
+
+    // Call API to update prospect email
+    const result = await updateProspectEmail(linkedinId, currentExtractedEmail);
+
+    if (result.success) {
+      showEmailStatus('Email saved successfully!', 'success');
+      saveEmailBtn.textContent = 'Saved ✓';
+      saveEmailBtn.classList.remove('btn-success');
+      saveEmailBtn.classList.add('btn-secondary');
+    } else {
+      throw new Error(result.message || 'Failed to save email');
+    }
+
+  } catch (error) {
+    console.error('[Popup] Save email error:', error);
+    showEmailStatus(error.message, 'error');
+    saveEmailBtn.disabled = false;
+    saveEmailBtn.textContent = 'Save to Prospect';
+  }
+}
+
+/**
+ * Reset email result UI
+ */
+function resetEmailResult() {
+  emailResult.classList.add('hidden');
+  emailFound.classList.add('hidden');
+  emailNotFound.classList.add('hidden');
+  extractedEmail.textContent = '';
+  currentExtractedEmail = null;
+  saveEmailBtn.disabled = false;
+  saveEmailBtn.textContent = 'Save to Prospect';
+  saveEmailBtn.classList.remove('btn-secondary');
+  saveEmailBtn.classList.add('btn-success');
+}
+
+/**
+ * Show email status message
+ * @param {string} message - Message text
+ * @param {string} type - Message type (success, error, info)
+ */
+function showEmailStatus(message, type) {
+  emailStatusMessage.textContent = message;
+  emailStatusMessage.className = type;
+  emailStatusMessage.classList.remove('hidden');
+}
+
+/**
+ * Hide email status message
+ */
+function hideEmailStatus() {
+  emailStatusMessage.classList.add('hidden');
+}
+
+// ==================== EXTRACTION RESULTS MODAL FUNCTIONS ====================
+
+/**
+ * Check for pending extraction results (called on popup load)
+ */
+async function checkForExtractionResults() {
+  try {
+    const stored = await chrome.storage.local.get(['extraction_completed_campaign']);
+
+    if (stored.extraction_completed_campaign) {
+      const campaignId = stored.extraction_completed_campaign;
+      console.log('[Popup] Found completed extraction campaign:', campaignId);
+
+      // Fetch results and show modal
+      await showExtractionResultsForCampaign(campaignId);
+
+      // Clear the notification
+      await chrome.storage.local.remove('extraction_completed_campaign');
+    }
+  } catch (error) {
+    console.error('[Popup] Error checking extraction results:', error);
+  }
+}
+
+/**
+ * Show extraction results modal for a campaign
+ * @param {number} campaignId - Campaign ID
+ */
+async function showExtractionResultsForCampaign(campaignId) {
+  try {
+    currentExtractionCampaignId = campaignId;
+
+    // Fetch results from API
+    const results = await getExtractionResults(campaignId);
+
+    if (!results.success) {
+      console.error('[Popup] Failed to get extraction results:', results.error);
+      return;
+    }
+
+    showExtractionResultsModal(results);
+  } catch (error) {
+    console.error('[Popup] Error showing extraction results:', error);
+  }
+}
+
+/**
+ * Show extraction results modal with data
+ * @param {object} results - Extraction results from API
+ */
+function showExtractionResultsModal(results) {
+  // Update counts
+  modalFoundCount.textContent = results.with_email_count || 0;
+  modalNotFoundCount.textContent = results.without_email_count || 0;
+
+  // Populate found emails list
+  if (results.with_email && results.with_email.length > 0) {
+    foundEmailsSection.classList.remove('hidden');
+    foundEmailsList.innerHTML = results.with_email.map(prospect =>
+      `<li>
+        <span class="prospect-name">${escapeHtml(prospect.full_name)}</span>
+        <span class="prospect-email">${escapeHtml(prospect.email)}</span>
+      </li>`
+    ).join('');
+  } else {
+    foundEmailsSection.classList.add('hidden');
+  }
+
+  // Populate not found emails list
+  if (results.without_email && results.without_email.length > 0) {
+    notFoundEmailsSection.classList.remove('hidden');
+    notFoundEmailsList.innerHTML = results.without_email.map(prospect =>
+      `<li>
+        <span class="prospect-name">${escapeHtml(prospect.full_name)}</span>
+      </li>`
+    ).join('');
+  } else {
+    notFoundEmailsSection.classList.add('hidden');
+  }
+
+  // Show modal
+  extractionResultsModal.classList.remove('hidden');
+}
+
+/**
+ * Hide extraction results modal
+ */
+function hideExtractionResultsModal() {
+  extractionResultsModal.classList.add('hidden');
+  currentExtractionCampaignId = null;
+}
+
+/**
+ * Handle "Send Later" button click
+ */
+function handleSendLater() {
+  hideExtractionResultsModal();
+  showStatus('Emails saved. You can send them later from the Mail tab in the dashboard.', 'info');
+}
+
+/**
+ * Handle "Save & View in Mail" button click
+ */
+async function handleSaveAndViewMail() {
+  hideExtractionResultsModal();
+
+  // Open the frontend mail page
+  try {
+    const apiUrl = await getApiUrl();
+    // Extract base URL (remove /api)
+    const baseUrl = apiUrl.replace('/api', '');
+    const mailUrl = baseUrl + '/mail';
+
+    chrome.tabs.create({ url: mailUrl });
+  } catch (error) {
+    console.error('[Popup] Error opening mail page:', error);
+    showStatus('Emails saved. Open the dashboard to view the Mail tab.', 'info');
+  }
+}

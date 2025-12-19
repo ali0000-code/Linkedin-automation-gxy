@@ -1,7 +1,7 @@
 /**
  * Template Create Modal
  *
- * Modal for creating new message templates (invitation or direct message).
+ * Modal for creating new message templates (invitation, direct message, or email).
  */
 
 import { useState } from 'react';
@@ -12,6 +12,7 @@ import { useCreateTemplate } from '../../hooks/useTemplates';
 const TemplateCreateModal = ({ isOpen, onClose, type }) => {
   const [formData, setFormData] = useState({
     name: '',
+    subject: '',
     content: '',
   });
   const [errors, setErrors] = useState({});
@@ -19,7 +20,12 @@ const TemplateCreateModal = ({ isOpen, onClose, type }) => {
   const { mutate: createTemplate, isPending } = useCreateTemplate();
 
   // Character limits based on type
-  const maxLength = type === 'invitation' ? 300 : 5000;
+  const getMaxLength = () => {
+    if (type === 'invitation') return 300;
+    if (type === 'email') return 10000;
+    return 5000;
+  };
+  const maxLength = getMaxLength();
   const currentLength = formData.content.length;
 
   const handleChange = (e) => {
@@ -46,6 +52,9 @@ const TemplateCreateModal = ({ isOpen, onClose, type }) => {
     if (!formData.name.trim()) {
       newErrors.name = 'Template name is required';
     }
+    if (type === 'email' && !formData.subject.trim()) {
+      newErrors.subject = 'Email subject is required';
+    }
     if (!formData.content.trim()) {
       newErrors.content = 'Message content is required';
     }
@@ -58,40 +67,84 @@ const TemplateCreateModal = ({ isOpen, onClose, type }) => {
       return;
     }
 
+    // Build payload
+    const payload = {
+      name: formData.name,
+      type: type,
+      content: formData.content,
+    };
+
+    // Add subject for email templates
+    if (type === 'email') {
+      payload.subject = formData.subject;
+    }
+
     // Create template
-    createTemplate(
-      {
-        name: formData.name,
-        type: type,
-        content: formData.content,
+    createTemplate(payload, {
+      onSuccess: () => {
+        // Reset form and close modal
+        setFormData({ name: '', subject: '', content: '' });
+        setErrors({});
+        onClose();
       },
-      {
-        onSuccess: () => {
-          // Reset form and close modal
-          setFormData({ name: '', content: '' });
-          setErrors({});
-          onClose();
-        },
-        onError: (error) => {
-          // Handle API errors
-          if (error.response?.data?.errors) {
-            setErrors(error.response.data.errors);
-          }
-        },
-      }
-    );
+      onError: (error) => {
+        // Handle API errors
+        if (error.response?.data?.errors) {
+          setErrors(error.response.data.errors);
+        }
+      },
+    });
   };
 
   const handleClose = () => {
-    setFormData({ name: '', content: '' });
+    setFormData({ name: '', subject: '', content: '' });
     setErrors({});
     onClose();
   };
 
-  const typeLabel = type === 'invitation' ? 'Invitation Message' : 'Direct Message';
+  const getTypeLabel = () => {
+    if (type === 'invitation') return 'Invitation Message';
+    if (type === 'email') return 'Email';
+    return 'Direct Message';
+  };
+
+  const getPlaceholder = () => {
+    if (type === 'invitation') {
+      return "Hi {firstName}, I'd love to connect and learn more about your work...";
+    }
+    if (type === 'email') {
+      return "Dear {firstName},\n\nI hope this email finds you well...\n\nBest regards";
+    }
+    return 'Write your message template here...';
+  };
+
+  const getInfoBanner = () => {
+    if (type === 'invitation') {
+      return (
+        <div className="bg-blue-50 border-l-4 border-linkedin p-3">
+          <p className="text-sm text-blue-700">
+            Invitation messages are sent with connection requests and have a <strong>300 character limit</strong>.
+          </p>
+        </div>
+      );
+    }
+    if (type === 'email') {
+      return (
+        <div className="bg-purple-50 border-l-4 border-purple-500 p-3">
+          <p className="text-sm text-purple-700">
+            Email templates require a <strong>subject line</strong>. Use personalization variables like{' '}
+            <code className="bg-purple-100 px-1 rounded">{'{firstName}'}</code>,{' '}
+            <code className="bg-purple-100 px-1 rounded">{'{company}'}</code>,{' '}
+            <code className="bg-purple-100 px-1 rounded">{'{headline}'}</code>.
+          </p>
+        </div>
+      );
+    }
+    return null;
+  };
 
   return (
-    <Modal isOpen={isOpen} onClose={handleClose} title={`Create ${typeLabel} Template`} size="lg">
+    <Modal isOpen={isOpen} onClose={handleClose} title={`Create ${getTypeLabel()} Template`} size="lg">
       <form onSubmit={handleSubmit} className="space-y-4">
         {/* Template Name */}
         <div>
@@ -112,35 +165,46 @@ const TemplateCreateModal = ({ isOpen, onClose, type }) => {
           {errors.name && <p className="text-red-500 text-sm mt-1">{errors.name}</p>}
         </div>
 
-        {/* Info Banner */}
-        {type === 'invitation' && (
-          <div className="bg-blue-50 border-l-4 border-linkedin p-3">
-            <p className="text-sm text-blue-700">
-              Invitation messages are sent with connection requests and have a <strong>300 character limit</strong>.
-            </p>
+        {/* Email Subject (only for email type) */}
+        {type === 'email' && (
+          <div>
+            <label htmlFor="subject" className="block text-sm font-medium text-gray-700 mb-1">
+              Email Subject <span className="text-red-500">*</span>
+            </label>
+            <input
+              type="text"
+              id="subject"
+              name="subject"
+              value={formData.subject}
+              onChange={handleChange}
+              className={`w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-linkedin ${
+                errors.subject ? 'border-red-500' : 'border-gray-300'
+              }`}
+              placeholder="e.g., Quick question about {company}"
+            />
+            {errors.subject && <p className="text-red-500 text-sm mt-1">{errors.subject}</p>}
           </div>
         )}
+
+        {/* Info Banner */}
+        {getInfoBanner()}
 
         {/* Message Content */}
         <div>
           <label htmlFor="content" className="block text-sm font-medium text-gray-700 mb-1">
-            Message Content <span className="text-red-500">*</span>
+            {type === 'email' ? 'Email Body' : 'Message Content'} <span className="text-red-500">*</span>
           </label>
           <textarea
             id="content"
             name="content"
             value={formData.content}
             onChange={handleChange}
-            rows={6}
+            rows={type === 'email' ? 10 : 6}
             maxLength={maxLength}
             className={`w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-linkedin resize-none ${
               errors.content ? 'border-red-500' : 'border-gray-300'
             }`}
-            placeholder={
-              type === 'invitation'
-                ? "Hi [Name], I'd love to connect and learn more about your work..."
-                : 'Write your message template here...'
-            }
+            placeholder={getPlaceholder()}
           />
           <div className="flex justify-between items-center mt-1">
             <div>
@@ -154,6 +218,20 @@ const TemplateCreateModal = ({ isOpen, onClose, type }) => {
               {currentLength} / {maxLength}
             </p>
           </div>
+        </div>
+
+        {/* Personalization Variables Help */}
+        <div className="bg-gray-50 p-3 rounded-lg">
+          <p className="text-xs text-gray-600 font-medium mb-1">Available Variables:</p>
+          <p className="text-xs text-gray-500">
+            <code className="bg-gray-200 px-1 rounded">{'{firstName}'}</code>{' '}
+            <code className="bg-gray-200 px-1 rounded">{'{lastName}'}</code>{' '}
+            <code className="bg-gray-200 px-1 rounded">{'{fullName}'}</code>{' '}
+            <code className="bg-gray-200 px-1 rounded">{'{company}'}</code>{' '}
+            <code className="bg-gray-200 px-1 rounded">{'{headline}'}</code>{' '}
+            <code className="bg-gray-200 px-1 rounded">{'{location}'}</code>
+            {type === 'email' && <> <code className="bg-gray-200 px-1 rounded">{'{email}'}</code></>}
+          </p>
         </div>
 
         {/* Buttons */}

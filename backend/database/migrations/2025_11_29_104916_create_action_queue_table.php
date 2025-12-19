@@ -23,13 +23,17 @@ return new class extends Migration
             $table->foreignId('prospect_id')->constrained()->onDelete('cascade');
             // campaign_id will be added later in update_action_queue_for_campaigns migration
 
-            // Action details
+            // Action details - includes all action types for both legacy and new campaigns
             $table->enum('action_type', [
                 'send_connection_request',
                 'send_message',
                 'withdraw_request',
-                'visit_profile'
-            ])->default('send_connection_request');
+                'visit_profile',
+                'visit',
+                'invite',
+                'message',
+                'follow'
+            ])->default('visit');
 
             $table->text('action_data')->nullable(); // JSON data (e.g., message text)
 

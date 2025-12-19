@@ -71,7 +71,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
     case 'CAMPAIGN_COMPLETED':
       // Campaign finished - show notification and update status
-      console.log('[Background] Campaign completed!', message.stats);
+      console.log('[Background] Campaign completed!', message.stats, 'Type:', message.actionType);
       queueStatus = {
         isRunning: false,
         lastUpdate: new Date().toISOString(),
@@ -81,17 +81,51 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       };
       chrome.storage.local.set({ queue_status: queueStatus });
 
-      // Show browser notification
-      try {
-        chrome.notifications.create('campaign-completed', {
-          type: 'basic',
-          iconUrl: 'icons/icon128.png',
-          title: 'Campaign Completed!',
-          message: `Completed ${message.stats?.completed || 0} actions. ${message.stats?.failed || 0} failed.`,
-          priority: 2
-        });
-      } catch (e) {
-        console.log('[Background] Could not show notification:', e.message);
+      // Check if this was an email campaign
+      if (message.actionType === 'email' && message.campaignId) {
+        console.log('[Background] Email campaign completed, showing results modal');
+
+        // Store the campaign ID so popup can show results when opened
+        chrome.storage.local.set({ extraction_completed_campaign: message.campaignId });
+
+        // Try to send message to popup (if open)
+        try {
+          chrome.runtime.sendMessage({
+            type: 'EXTRACTION_COMPLETE',
+            campaignId: message.campaignId
+          }).catch(() => {
+            // Popup might not be open, that's okay - we stored in local storage
+            console.log('[Background] Popup not open, results will show when opened');
+          });
+        } catch (e) {
+          console.log('[Background] Could not send to popup:', e.message);
+        }
+
+        // Show browser notification for email campaign
+        try {
+          chrome.notifications.create('email-campaign-completed', {
+            type: 'basic',
+            iconUrl: 'icons/icon128.png',
+            title: 'Email Extraction Complete!',
+            message: `Extracted emails from ${message.stats?.completed || 0} profiles. Click to see results.`,
+            priority: 2
+          });
+        } catch (e) {
+          console.log('[Background] Could not show notification:', e.message);
+        }
+      } else {
+        // Show browser notification for regular campaigns
+        try {
+          chrome.notifications.create('campaign-completed', {
+            type: 'basic',
+            iconUrl: 'icons/icon128.png',
+            title: 'Campaign Completed!',
+            message: `Completed ${message.stats?.completed || 0} actions. ${message.stats?.failed || 0} failed.`,
+            priority: 2
+          });
+        } catch (e) {
+          console.log('[Background] Could not show notification:', e.message);
+        }
       }
       break;
 
@@ -155,7 +189,7 @@ async function handleApiRequest(endpoint, method = 'GET', body = null) {
     headers
   };
 
-  if (body && (method === 'POST' || method === 'PUT')) {
+  if (body && (method === 'POST' || method === 'PUT' || method === 'PATCH')) {
     options.body = JSON.stringify(body);
   }
 

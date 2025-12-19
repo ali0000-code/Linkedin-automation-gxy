@@ -364,10 +364,17 @@ class QueueProcessor {
 
             // Close this tab or navigate away
             try {
-              // Notify user
+              // Get the last action's campaign info for the completion notification
+              const lastAction = this.currentAction;
+              const campaignId = lastAction?.campaign_id || null;
+              const actionType = lastAction?.action_type || null;
+
+              // Notify user (include campaign info for email modal)
               chrome.runtime.sendMessage({
                 type: 'CAMPAIGN_COMPLETED',
-                stats: this.stats
+                stats: this.stats,
+                campaignId: campaignId,
+                actionType: actionType
               }).catch(() => {});
 
               // Navigate to LinkedIn feed instead of closing tab

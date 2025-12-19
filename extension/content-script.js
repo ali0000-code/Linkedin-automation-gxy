@@ -133,6 +133,47 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
 
+  // ==================== EMAIL EXTRACTION MESSAGES ====================
+
+  // Extract email from current profile page
+  if (message.type === 'EXTRACT_EMAIL') {
+    console.log('[Content Script] Email extraction requested');
+
+    // Check if we're on a profile page
+    if (!window.location.href.includes('linkedin.com/in/')) {
+      sendResponse({
+        success: false,
+        error: 'Please navigate to a LinkedIn profile page first'
+      });
+      return true;
+    }
+
+    // Check if extraction function exists
+    if (typeof extractEmailFromProfile !== 'function') {
+      sendResponse({
+        success: false,
+        error: 'Email extractor not loaded. Please refresh the page.'
+      });
+      return true;
+    }
+
+    // Perform email extraction
+    extractEmailFromProfile()
+      .then(result => {
+        console.log('[Content Script] Email extraction result:', result);
+        sendResponse(result);
+      })
+      .catch(error => {
+        console.error('[Content Script] Email extraction error:', error);
+        sendResponse({
+          success: false,
+          error: error.message || 'Email extraction failed'
+        });
+      });
+
+    return true;
+  }
+
   // ==================== UTILITY MESSAGES ====================
 
   // Ping request to check if content script is loaded
@@ -141,7 +182,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       success: true,
       message: 'Content script is ready',
       queueAvailable: typeof window.QueueProcessor !== 'undefined',
-      executorAvailable: typeof window.ActionExecutor !== 'undefined'
+      executorAvailable: typeof window.ActionExecutor !== 'undefined',
+      isProfilePage: window.location.href.includes('linkedin.com/in/')
     });
     return true;
   }

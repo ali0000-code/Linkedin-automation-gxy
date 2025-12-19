@@ -76,6 +76,7 @@ class CampaignController extends Controller
             'name' => 'required|string|max:255',
             'description' => 'nullable|string',
             'daily_limit' => 'nullable|integer|min:1|max:100',
+            'tag_id' => 'nullable|integer|exists:tags,id', // For filtering prospects by tag
             'steps' => 'nullable|array',
             'steps.*.campaign_action_id' => 'required|integer|exists:campaign_actions,id',
             'steps.*.delay_days' => 'nullable|integer|min:0',

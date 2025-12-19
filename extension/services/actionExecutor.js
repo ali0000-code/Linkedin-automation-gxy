@@ -665,6 +665,128 @@ async function executeMessage(action) {
 }
 
 /**
+ * Execute an EMAIL action
+ * Visits profile and extracts email from Contact Info overlay
+ * @param {object} action - Action data from API
+ * @returns {Promise<{success: boolean, message: string, email?: string}>}
+ */
+async function executeEmail(action) {
+  console.log('[ActionExecutor] Executing EMAIL action for:', action.prospect.full_name);
+
+  const selectors = window.LINKEDIN_SELECTORS;
+  if (!selectors) {
+    return { success: false, message: 'Selectors not loaded' };
+  }
+
+  try {
+    const profileUrl = action.prospect.profile_url;
+
+    // Navigate to profile if not already there
+    if (!window.location.href.includes(profileUrl.replace('https://www.linkedin.com', ''))) {
+      console.log('[ActionExecutor] Navigating to profile for email extraction:', profileUrl);
+      window.location.href = profileUrl;
+      return { success: true, message: 'Navigating to profile', navigating: true };
+    }
+
+    // Wait for page to load
+    await sleep(2000);
+
+    // Find the Contact Info link
+    const contactInfoLink = document.querySelector(selectors.CONTACT_INFO.OPENER);
+
+    if (!contactInfoLink) {
+      console.log('[ActionExecutor] Contact Info link not found');
+      return { success: true, message: 'Contact Info not available', email: null };
+    }
+
+    console.log('[ActionExecutor] Opening Contact Info overlay...');
+    contactInfoLink.click();
+
+    // Wait for modal to appear
+    await sleep(2000);
+
+    // Check if modal appeared
+    const modal = document.querySelector(selectors.CONTACT_INFO.MODAL);
+    if (!modal) {
+      console.log('[ActionExecutor] Contact Info modal did not appear');
+      return { success: true, message: 'Contact Info modal did not open', email: null };
+    }
+
+    // Try to find email in the modal
+    let emailLink = modal.querySelector(selectors.CONTACT_INFO.EMAIL_LINK);
+
+    // Try alternative selector
+    if (!emailLink) {
+      emailLink = modal.querySelector(selectors.CONTACT_INFO.EMAIL_LINK_ALT);
+    }
+
+    // Try any mailto link in modal
+    if (!emailLink) {
+      emailLink = modal.querySelector('a[href^="mailto:"]');
+    }
+
+    let email = null;
+    if (emailLink) {
+      // Extract email from href="mailto:email@example.com"
+      const href = emailLink.getAttribute('href');
+      email = href.replace('mailto:', '').trim();
+      console.log('[ActionExecutor] Email found:', email);
+
+      // Save email to backend
+      try {
+        const linkedinId = action.prospect.linkedin_id;
+        if (linkedinId && email) {
+          // Send message to background to update prospect email
+          await new Promise((resolve, reject) => {
+            chrome.runtime.sendMessage({
+              type: 'API_REQUEST',
+              endpoint: `/extension/prospects/${linkedinId}/email`,
+              method: 'PATCH',
+              body: { email }
+            }, (response) => {
+              if (chrome.runtime.lastError) {
+                console.error('[ActionExecutor] Failed to save email:', chrome.runtime.lastError);
+                reject(chrome.runtime.lastError);
+              } else if (response && response.error) {
+                console.error('[ActionExecutor] API error saving email:', response.error);
+                reject(new Error(response.error));
+              } else {
+                console.log('[ActionExecutor] Email saved to backend');
+                resolve(response);
+              }
+            });
+          });
+        }
+      } catch (saveError) {
+        console.error('[ActionExecutor] Error saving email:', saveError);
+        // Continue even if save failed
+      }
+    } else {
+      console.log('[ActionExecutor] No email found in Contact Info');
+    }
+
+    // Close the Contact Info modal
+    const closeButton = modal.querySelector(selectors.CONTACT_INFO.CLOSE_BUTTON) ||
+                        document.querySelector('button[aria-label="Dismiss"]');
+    if (closeButton) {
+      closeButton.click();
+      await sleep(300);
+      console.log('[ActionExecutor] Contact Info modal closed');
+    }
+
+    if (email) {
+      return { success: true, message: `Email extracted: ${email}`, email };
+    } else {
+      return { success: true, message: 'No email found for this user', email: null };
+    }
+
+  } catch (error) {
+    console.error('[ActionExecutor] Extract email failed:', error);
+    return { success: false, message: error.message };
+  }
+}
+
+/**
  * Main action executor - routes to appropriate handler
  * @param {object} action - Action data from API
  * @returns {Promise<{success: boolean, message: string, navigating?: boolean}>}
@@ -685,6 +807,9 @@ async function executeAction(action) {
     case 'follow':
       return await executeFollow(action);
 
+    case 'email':
+      return await executeEmail(action);
+
     default:
       return {
         success: false,
@@ -701,6 +826,7 @@ if (typeof window !== 'undefined') {
     executeInvite,
     executeMessage,
     executeFollow,
+    executeEmail,
     getCurrentUserProfileUrl,
     isProfilePage,
     getMainProfileActionContainer,

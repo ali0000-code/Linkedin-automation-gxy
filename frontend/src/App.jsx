@@ -17,6 +17,8 @@ import CampaignsList from './pages/CampaignsList';
 import CampaignCreate from './pages/CampaignCreate';
 import CampaignDetails from './pages/CampaignDetails';
 import MessageTemplates from './pages/MessageTemplates';
+import Settings from './pages/Settings';
+import Mail from './pages/Mail';
 import ComingSoon from './pages/ComingSoon';
 import NotFound from './pages/NotFound';
 
@@ -63,7 +65,7 @@ const PublicRoute = ({ children }) => {
  * Main App Component
  */
 function App() {
-  const { token, setUser, clearAuth } = useAuthStore();
+  const { token, setUser, clearAuth, syncWithExtension } = useAuthStore();
 
   // Verify token and refresh user data on app mount
   useEffect(() => {
@@ -98,6 +100,26 @@ function App() {
 
     verifyAuth();
   }, [token]); // Run whenever token changes
+
+  // Sync with extension when it becomes ready
+  useEffect(() => {
+    if (!token) return;
+
+    // Try to sync immediately (extension may already be ready)
+    syncWithExtension();
+
+    // Listen for extension-ready event (fired by webapp-connector.js)
+    const handleExtensionReady = () => {
+      console.log('[App] Extension ready event received, syncing...');
+      syncWithExtension();
+    };
+
+    window.addEventListener('linkedin-automation-extension-ready', handleExtensionReady);
+
+    return () => {
+      window.removeEventListener('linkedin-automation-extension-ready', handleExtensionReady);
+    };
+  }, [token, syncWithExtension]);
 
   return (
     <QueryClientProvider client={queryClient}>
@@ -183,10 +205,18 @@ function App() {
             }
           />
           <Route
+            path="/mail"
+            element={
+              <ProtectedRoute>
+                <Mail />
+              </ProtectedRoute>
+            }
+          />
+          <Route
             path="/settings"
             element={
               <ProtectedRoute>
-                <ComingSoon title="Settings" description="Settings and preferences are under development." />
+                <Settings />
               </ProtectedRoute>
             }
           />

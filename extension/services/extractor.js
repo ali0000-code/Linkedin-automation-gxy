@@ -313,17 +313,128 @@ async function extractFromConnectionsPage(limit = 100, totalCollected = 0, total
     return extracted;
   }
 
-  // Find all connection cards
+  // Try NEW LinkedIn UI first (2024+) - uses data-view-name attribute
+  // Note: Each card has TWO <a data-view-name="connections-profile"> elements:
+  //   1. First one contains the profile image
+  //   2. Second one contains the name
+  // We need to find unique profile URLs and extract from the parent card container
+
+  const connectionCardLinks = document.querySelectorAll(selectors.CONNECTION_CARD_LINK);
+
+  if (connectionCardLinks.length > 0) {
+    console.log(`[Extractor] Found ${connectionCardLinks.length} connection card links (new UI)`);
+
+    // Group links by profile URL to deduplicate
+    const profileUrlToCard = new Map();
+
+    for (const cardLink of connectionCardLinks) {
+      const profileUrl = cardLink.href;
+      if (!profileUrl || !profileUrl.includes('/in/')) continue;
+
+      // Find the parent card container (the div that contains both links)
+      const cardContainer = cardLink.closest('div[componentkey]') ||
+                            cardLink.closest('li') ||
+                            cardLink.parentElement?.parentElement;
+
+      if (cardContainer && !profileUrlToCard.has(profileUrl)) {
+        profileUrlToCard.set(profileUrl, cardContainer);
+      }
+    }
+
+    console.log(`[Extractor] Found ${profileUrlToCard.size} unique connection cards`);
+
+    for (const [profileUrl, cardContainer] of profileUrlToCard) {
+      if (shouldStopExtraction) break;
+      if (currentCount >= limit) break;
+
+      try {
+        // Get name from the nested p > a structure (in the second link)
+        const nameLink = cardContainer.querySelector('p a[href*="/in/"]');
+        let name = nameLink?.textContent?.trim();
+
+        // Fallback: try span with aria-hidden
+        if (!name || name.length < 2) {
+          const nameSpan = cardContainer.querySelector('span[aria-hidden="true"]');
+          name = nameSpan?.textContent?.trim();
+        }
+
+        if (!name || name.length < 2) {
+          console.log(`[Extractor] Skipping - no name found for ${profileUrl}`);
+          continue;
+        }
+
+        // Get profile image from the card container
+        // The img is inside the FIRST <a> link with a figure element
+        let profileImage = null;
+
+        // Method 1: Find img with "'s profile picture" in alt (most reliable)
+        const imgWithProfilePicture = cardContainer.querySelector('img[alt*="profile picture"]');
+
+        if (imgWithProfilePicture) {
+          profileImage = imgWithProfilePicture.src;
+        } else {
+          // Method 2: Try to find image by alt starting with first name
+          const firstName = name.split(' ')[0];
+          const imgByAlt = cardContainer.querySelector(`img[alt^="${firstName}"]`);
+
+          if (imgByAlt) {
+            profileImage = imgByAlt.src;
+          } else {
+            // Method 3: Find any img inside a figure element
+            const figureImg = cardContainer.querySelector('figure img');
+            profileImage = figureImg?.src || null;
+          }
+        }
+
+        // Get headline if available
+        let headline = null;
+        const headlineEl = cardContainer.querySelector('p._5cc1ed84');
+        if (headlineEl) {
+          headline = headlineEl.textContent?.trim() || null;
+        }
+
+        const prospect = {
+          full_name: name,
+          profile_url: profileUrl,
+          linkedin_id: extractLinkedInId(profileUrl),
+          headline: headline,
+          profile_image_url: profileImage
+        };
+
+        extracted.push(prospect);
+        currentCount++;
+
+        // Send progress update
+        const totalCurrent = totalCollected + currentCount;
+        try {
+          chrome.runtime.sendMessage({
+            type: 'EXTRACTION_PROGRESS',
+            current: totalCurrent,
+            limit: totalLimit
+          });
+        } catch (e) { /* ignore */ }
+
+        console.log(`[Extractor] Extracted ${totalCurrent}/${totalLimit}: ${prospect.full_name} - Image: ${profileImage ? 'YES' : 'NO'}`);
+
+      } catch (error) {
+        console.warn('[Extractor] Error extracting connection card:', error);
+      }
+    }
+
+    console.log(`[Extractor] Extracted ${extracted.length} connections (new UI)`);
+    return extracted;
+  }
+
+  // Fallback to legacy selectors
   let connectionCards = document.querySelectorAll(selectors.CONNECTION_CARD);
 
-  // Try alternative selector if primary doesn't work
   if (connectionCards.length === 0) {
     connectionCards = document.querySelectorAll(selectors.ALT_CARD);
   }
 
   // If still no cards, try finding by profile links
   if (connectionCards.length === 0) {
-    console.log('[Extractor] Trying to find connections by profile links...');
+    console.log('[Extractor] Trying to find connections by profile links (legacy)...');
     const profileLinks = document.querySelectorAll('a[href*="/in/"]');
     const uniqueLinks = new Map();
 
@@ -347,38 +458,44 @@ async function extractFromConnectionsPage(limit = 100, totalCollected = 0, total
       if (currentCount >= limit) break;
 
       try {
-        // Find the card container
-        const card = link.closest('li') || link.closest('div[data-view-name]') || link.parentElement;
-
-        // Get name from link text or nearby element
+        const card = link.closest('li') || link.parentElement;
         let name = link.textContent?.trim();
+
+        // Try to get name from nearby elements
         if (!name || name.length < 2) {
-          const nameEl = card?.querySelector('.mn-connection-card__name, .entity-result__title-text, span[aria-hidden="true"]');
+          const nameEl = card?.querySelector('.mn-connection-card__name, span[aria-hidden="true"]');
           name = nameEl?.textContent?.trim();
+        }
+
+        // Fallback: extract from URL
+        if (!name || name.length < 2) {
+          const linkedinId = extractLinkedInId(href);
+          if (linkedinId) {
+            name = linkedinId
+              .replace(/-\d+$/, '')
+              .replace(/-/g, ' ')
+              .split(' ')
+              .map(word => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+              .join(' ');
+          }
         }
 
         if (!name || name.length < 2) continue;
 
-        // Get headline/occupation
-        const occupationEl = card?.querySelector('.mn-connection-card__occupation, .entity-result__primary-subtitle');
-        const headline = occupationEl?.textContent?.trim() || null;
-
-        // Get profile image
-        const imgEl = card?.querySelector(`img[alt*="${name}"], img.presence-entity__image, img.EntityPhoto-circle-4`);
+        const imgEl = card?.querySelector('img');
         const profileImage = imgEl?.src || null;
 
         const prospect = {
           full_name: name,
           profile_url: href,
           linkedin_id: extractLinkedInId(href),
-          headline: headline,
+          headline: null,
           profile_image_url: profileImage
         };
 
         extracted.push(prospect);
         currentCount++;
 
-        // Send progress update
         const totalCurrent = totalCollected + currentCount;
         try {
           chrome.runtime.sendMessage({
@@ -573,4 +690,219 @@ async function performExtraction(limit = 100) {
     // Reset stop flag after extraction
     shouldStopExtraction = false;
   }
+}
+
+// ==================== EMAIL EXTRACTION ====================
+
+/**
+ * Open Contact Info overlay on a profile page
+ * @returns {Promise<boolean>} True if overlay opened successfully
+ */
+async function openContactInfoOverlay() {
+  const selectors = window.LINKEDIN_SELECTORS?.CONTACT_INFO;
+
+  if (!selectors) {
+    console.error('[Extractor] Contact Info selectors not loaded');
+    return false;
+  }
+
+  // Find the Contact Info link
+  const opener = document.querySelector(selectors.OPENER);
+
+  if (!opener) {
+    console.log('[Extractor] Contact Info link not found on this page');
+    return false;
+  }
+
+  console.log('[Extractor] Opening Contact Info overlay...');
+  opener.click();
+
+  // Wait for modal to appear
+  let attempts = 0;
+  const maxAttempts = 10;
+
+  while (attempts < maxAttempts) {
+    await new Promise(resolve => setTimeout(resolve, 500));
+
+    const modal = document.querySelector(selectors.MODAL);
+    if (modal) {
+      console.log('[Extractor] Contact Info overlay opened');
+      // Give it a moment to fully render
+      await new Promise(resolve => setTimeout(resolve, 500));
+      return true;
+    }
+
+    attempts++;
+  }
+
+  console.log('[Extractor] Contact Info overlay did not appear');
+  return false;
+}
+
+/**
+ * Extract email from the Contact Info overlay
+ * @returns {string|null} Email address or null if not found
+ */
+function extractEmailFromOverlay() {
+  const selectors = window.LINKEDIN_SELECTORS?.CONTACT_INFO;
+
+  if (!selectors) {
+    console.error('[Extractor] Contact Info selectors not loaded');
+    return null;
+  }
+
+  // Try primary selector first
+  let emailLink = document.querySelector(selectors.EMAIL_LINK);
+
+  // Try alternative selector
+  if (!emailLink) {
+    emailLink = document.querySelector(selectors.EMAIL_LINK_ALT);
+  }
+
+  // Try finding any mailto link in the modal
+  if (!emailLink) {
+    const modal = document.querySelector(selectors.MODAL);
+    if (modal) {
+      emailLink = modal.querySelector('a[href^="mailto:"]');
+    }
+  }
+
+  if (!emailLink) {
+    console.log('[Extractor] No email found in Contact Info');
+    return null;
+  }
+
+  // Extract email from href="mailto:email@example.com"
+  const href = emailLink.getAttribute('href');
+  const email = href.replace('mailto:', '').trim();
+
+  console.log('[Extractor] Email found:', email);
+  return email;
+}
+
+/**
+ * Close the Contact Info overlay
+ * @returns {Promise<void>}
+ */
+async function closeContactInfoOverlay() {
+  const selectors = window.LINKEDIN_SELECTORS?.CONTACT_INFO;
+
+  // Try to find dismiss button
+  const closeButton = document.querySelector(selectors?.CLOSE_BUTTON) ||
+                      document.querySelector('button[aria-label="Dismiss"]') ||
+                      document.querySelector('.artdeco-modal__dismiss');
+
+  if (closeButton) {
+    closeButton.click();
+    await new Promise(resolve => setTimeout(resolve, 300));
+    console.log('[Extractor] Contact Info overlay closed');
+  } else {
+    // Try pressing Escape key as fallback
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', keyCode: 27 }));
+    await new Promise(resolve => setTimeout(resolve, 300));
+  }
+}
+
+/**
+ * Extract email from current profile page
+ * Opens Contact Info overlay, extracts email, and closes it
+ * @returns {Promise<{success: boolean, email: string|null}>}
+ */
+async function extractEmailFromProfile() {
+  try {
+    // Check if we're on a profile page
+    if (!window.location.href.includes('linkedin.com/in/')) {
+      return { success: false, email: null, error: 'Not on a profile page' };
+    }
+
+    // Open the Contact Info overlay
+    const opened = await openContactInfoOverlay();
+
+    if (!opened) {
+      return { success: false, email: null, error: 'Could not open Contact Info' };
+    }
+
+    // Extract email
+    const email = extractEmailFromOverlay();
+
+    // Close the overlay
+    await closeContactInfoOverlay();
+
+    if (email) {
+      return { success: true, email: email };
+    } else {
+      return { success: true, email: null, error: 'No email found for this user' };
+    }
+
+  } catch (error) {
+    console.error('[Extractor] Error extracting email:', error);
+    // Try to close overlay if it's open
+    await closeContactInfoOverlay();
+    return { success: false, email: null, error: error.message };
+  }
+}
+
+/**
+ * Extract emails from multiple profile URLs
+ * Navigates to each profile, extracts email, and returns results
+ * @param {Array<{id: number, profile_url: string, full_name: string}>} prospects - Array of prospects to extract emails from
+ * @param {function} onProgress - Callback for progress updates
+ * @returns {Promise<{withEmail: Array, withoutEmail: Array}>}
+ */
+async function extractEmailsFromProspects(prospects, onProgress) {
+  const withEmail = [];
+  const withoutEmail = [];
+  let processed = 0;
+
+  console.log(`[Extractor] Starting email extraction for ${prospects.length} prospects`);
+
+  for (const prospect of prospects) {
+    if (shouldStopExtraction) {
+      console.log('[Extractor] Email extraction stopped by user');
+      break;
+    }
+
+    processed++;
+
+    // Report progress
+    if (onProgress) {
+      onProgress({
+        current: processed,
+        total: prospects.length,
+        prospect: prospect.full_name
+      });
+    }
+
+    try {
+      // Navigate to profile page
+      console.log(`[Extractor] Processing ${processed}/${prospects.length}: ${prospect.full_name}`);
+
+      // If we're already on this profile page, extract directly
+      if (window.location.href.includes(prospect.linkedin_id || extractLinkedInId(prospect.profile_url))) {
+        const result = await extractEmailFromProfile();
+
+        if (result.email) {
+          withEmail.push({ ...prospect, email: result.email });
+        } else {
+          withoutEmail.push(prospect);
+        }
+      } else {
+        // We need to navigate - this should be handled by the caller
+        // since we can't navigate to another page from content script easily
+        console.log(`[Extractor] Skipping ${prospect.full_name} - not on their profile page`);
+        withoutEmail.push({ ...prospect, skipped: true });
+      }
+
+      // Small delay between extractions
+      await new Promise(resolve => setTimeout(resolve, 500));
+
+    } catch (error) {
+      console.error(`[Extractor] Error processing ${prospect.full_name}:`, error);
+      withoutEmail.push({ ...prospect, error: error.message });
+    }
+  }
+
+  console.log(`[Extractor] Email extraction complete: ${withEmail.length} with email, ${withoutEmail.length} without`);
+
+  return { withEmail, withoutEmail };
 }

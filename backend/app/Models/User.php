@@ -121,4 +121,22 @@ class User extends Authenticatable
     {
         return $this->hasMany(MessageTemplate::class);
     }
+
+    /**
+     * Get the Gmail settings for this user.
+     *
+     * Gmail settings store SMTP credentials for sending emails.
+     */
+    public function gmailSetting()
+    {
+        return $this->hasOne(GmailSetting::class);
+    }
+
+    /**
+     * Get all emails sent by this user.
+     */
+    public function sentEmails()
+    {
+        return $this->hasMany(SentEmail::class);
+    }
 }

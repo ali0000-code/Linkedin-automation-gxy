@@ -30,6 +30,7 @@
       <!-- Tab buttons -->
       <div class="tab-buttons">
         <button id="tab-extract" class="tab-btn active">Extract</button>
+        <button id="tab-email" class="tab-btn">Email</button>
         <button id="tab-campaigns" class="tab-btn">Campaigns</button>
       </div>
 
@@ -82,6 +83,39 @@
           <p class="stats-text">
             Last extraction: <strong id="last-count">-</strong> prospects
           </p>
+        </div>
+      </div>
+
+      <!-- Email extraction section -->
+      <div id="email-section" class="email-section hidden">
+        <h3>Extract Email</h3>
+        <p class="help-text">Navigate to a LinkedIn profile and click below to extract email from Contact Info.</p>
+
+        <!-- Email status messages -->
+        <div id="email-status-message" class="hidden"></div>
+
+        <!-- Current profile info -->
+        <div id="email-profile-info" class="profile-info hidden">
+          <p><strong>Current profile:</strong> <span id="email-profile-name">-</span></p>
+        </div>
+
+        <!-- Extract email button -->
+        <button id="extract-email-btn" class="btn btn-primary btn-large">
+          Extract Email
+        </button>
+
+        <!-- Email result -->
+        <div id="email-result" class="email-result hidden">
+          <div id="email-found" class="email-found hidden">
+            <p class="result-icon">&#x2709;</p>
+            <p class="result-label">Email found:</p>
+            <p id="extracted-email" class="extracted-email"></p>
+            <button id="save-email-btn" class="btn btn-success">Save to Prospect</button>
+          </div>
+          <div id="email-not-found" class="email-not-found hidden">
+            <p class="result-icon">&#x2717;</p>
+            <p class="result-label">No email found for this user</p>
+          </div>
         </div>
       </div>
 
@@ -139,6 +173,43 @@
     <!-- Loading overlay -->
     <div id="loading-overlay" class="loading-overlay hidden">
       <div class="spinner"></div>
+    </div>
+
+    <!-- Email Extraction Results Modal -->
+    <div id="extraction-results-modal" class="modal hidden">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h3>Email Extraction Complete</h3>
+          <button id="close-modal-btn" class="close-btn">&times;</button>
+        </div>
+        <div class="modal-body">
+          <div class="results-summary">
+            <div class="result-stat success">
+              <span class="stat-number" id="modal-found-count">0</span>
+              <span class="stat-label">Emails Found</span>
+            </div>
+            <div class="result-stat warning">
+              <span class="stat-number" id="modal-not-found-count">0</span>
+              <span class="stat-label">Not Found</span>
+            </div>
+          </div>
+
+          <div class="results-list-container">
+            <div id="found-emails-section" class="results-section hidden">
+              <h4>Prospects with Email</h4>
+              <ul id="found-emails-list" class="results-list"></ul>
+            </div>
+            <div id="not-found-emails-section" class="results-section hidden">
+              <h4>Prospects without Email</h4>
+              <ul id="not-found-emails-list" class="results-list"></ul>
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button id="modal-send-later-btn" class="btn btn-secondary">Send Later</button>
+          <button id="modal-save-btn" class="btn btn-primary">Save & View in Mail</button>
+        </div>
+      </div>
     </div>
   </div>
 

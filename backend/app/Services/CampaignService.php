@@ -74,7 +74,7 @@ class CampaignService
      * Create a new campaign.
      *
      * @param User $user
-     * @param array $data (name, description, daily_limit, steps)
+     * @param array $data (name, description, daily_limit, tag_id, steps)
      * @return Campaign
      */
     public function createCampaign(User $user, array $data): Campaign
@@ -84,6 +84,7 @@ class CampaignService
             'name' => $data['name'],
             'description' => $data['description'] ?? null,
             'daily_limit' => $data['daily_limit'] ?? 50,
+            'tag_id' => $data['tag_id'] ?? null, // For filtering prospects by tag
             'status' => Campaign::STATUS_DRAFT,
         ]);
 
@@ -273,7 +274,28 @@ class CampaignService
                 ];
             }
         } else {
-            // For new start: must have at least one pending prospect
+            // For new start: if tag_id is set, auto-add prospects with that tag
+            if ($campaign->tag_id) {
+                $prospectsWithTag = \App\Models\Prospect::where('user_id', $campaign->user_id)
+                    ->whereHas('tags', function ($query) use ($campaign) {
+                        $query->where('tags.id', $campaign->tag_id);
+                    })
+                    ->pluck('id')
+                    ->toArray();
+
+                if (empty($prospectsWithTag)) {
+                    return [
+                        'success' => false,
+                        'message' => 'No prospects found with the selected tag',
+                        'actions_created' => 0,
+                    ];
+                }
+
+                // Add prospects to campaign
+                $this->addProspects($campaign, $prospectsWithTag);
+            }
+
+            // Must have at least one pending prospect
             $pendingProspects = $campaign->campaignProspects()->pending()->count();
             if ($pendingProspects === 0) {
                 return [

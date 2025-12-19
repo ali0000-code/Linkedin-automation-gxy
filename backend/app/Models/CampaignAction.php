@@ -69,6 +69,7 @@ class CampaignAction extends Model
     const KEY_INVITE = 'invite';
     const KEY_MESSAGE = 'message';
     const KEY_FOLLOW = 'follow';
+    const KEY_EMAIL = 'email';
 
     /**
      * Get all campaign steps that use this action.

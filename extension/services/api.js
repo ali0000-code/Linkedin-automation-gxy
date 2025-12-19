@@ -18,6 +18,14 @@ async function apiCall(endpoint, method = 'GET', body = null) {
   const token = await getAuthToken();
   const apiUrl = await getApiUrl();
 
+  console.log('[API] Making request:', {
+    endpoint,
+    method,
+    hasToken: !!token,
+    hasBody: !!body,
+    bodyKeys: body ? Object.keys(body) : []
+  });
+
   const headers = {
     'Content-Type': 'application/json',
     'Accept': 'application/json'
@@ -33,9 +41,10 @@ async function apiCall(endpoint, method = 'GET', body = null) {
     headers
   };
 
-  // Add body for POST/PUT requests
-  if (body && (method === 'POST' || method === 'PUT')) {
+  // Add body for POST/PUT/PATCH requests
+  if (body && (method === 'POST' || method === 'PUT' || method === 'PATCH')) {
     options.body = JSON.stringify(body);
+    console.log('[API] Request body:', options.body.substring(0, 200) + '...');
   }
 
   try {
@@ -366,4 +375,31 @@ async function getActiveCampaigns() {
     return await backgroundApiCall('/extension/campaigns/active', 'GET');
   }
   return await apiCall('/extension/campaigns/active', 'GET');
+}
+
+/**
+ * Update prospect email by LinkedIn ID
+ * @param {string} linkedinId - LinkedIn ID (e.g., "john-doe-123456")
+ * @param {string} email - Email address to save
+ * @returns {Promise<object>} Update result
+ */
+async function updateProspectEmail(linkedinId, email) {
+  const body = { email };
+
+  if (isContentScriptContext()) {
+    return await backgroundApiCall(`/extension/prospects/${linkedinId}/email`, 'PATCH', body);
+  }
+  return await apiCall(`/extension/prospects/${linkedinId}/email`, 'PATCH', body);
+}
+
+/**
+ * Get email extraction results for a campaign
+ * @param {number} campaignId - Campaign ID
+ * @returns {Promise<object>} Extraction results with counts and prospect lists
+ */
+async function getExtractionResults(campaignId) {
+  if (isContentScriptContext()) {
+    return await backgroundApiCall(`/extension/campaigns/${campaignId}/extraction-results`, 'GET');
+  }
+  return await apiCall(`/extension/campaigns/${campaignId}/extraction-results`, 'GET');
 }

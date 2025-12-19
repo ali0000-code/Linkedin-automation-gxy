@@ -107,19 +107,26 @@ const LINKEDIN_SELECTORS = {
   CONNECTIONS: {
     // Main container for connections list
     CONTAINER: '.mn-connections',
-    // Each connection card
+
+    // NEW LinkedIn UI (2024+) - uses data-view-name attribute
+    // Each connection card link
+    CONNECTION_CARD_LINK: 'a[data-view-name="connections-profile"]',
+    // Profile image inside the card
+    CARD_PROFILE_IMAGE: 'a[data-view-name="connections-profile"] img',
+    // Name link inside the card (nested p > a structure)
+    CARD_NAME_LINK: 'a[data-view-name="connections-profile"] p a',
+
+    // Legacy selectors (older LinkedIn UI)
     CONNECTION_CARD: '.mn-connection-card',
-    // Profile link within card
     PROFILE_LINK: '.mn-connection-card__link',
-    // Name element
     NAME: '.mn-connection-card__name',
-    // Occupation/headline
     OCCUPATION: '.mn-connection-card__occupation',
-    // Profile image
     PROFILE_IMAGE: '.mn-connection-card__picture img, .presence-entity__image',
+
     // Load more button (if exists)
     LOAD_MORE_BUTTON: 'button.scaffold-finite-scroll__load-button',
-    // Alternative selectors for newer LinkedIn UI
+
+    // Alternative selectors
     ALT_PROFILE_LINK: 'a.ember-view[href*="/in/"]',
     ALT_CARD: 'li.mn-connection-card'
   },
@@ -132,6 +139,40 @@ const LINKEDIN_SELECTORS = {
     ME_BUTTON_ALT: '.global-nav__me',
     DROPDOWN_PROFILE: '.global-nav__me-content a[href*="/in/"]',
     FEED_PROFILE: '.feed-identity-module a[href*="/in/"]'
+  },
+
+  /**
+   * Contact Info Extraction (for email)
+   * Opens from profile page top card
+   */
+  CONTACT_INFO: {
+    // Contact info link opener (on profile page)
+    OPENER: 'a[href*="overlay/contact-info"]',
+
+    // Modal/overlay that appears
+    MODAL: '.artdeco-modal__content',
+    MODAL_HEADER: '.artdeco-modal__header',
+
+    // Close button for the modal
+    CLOSE_BUTTON: 'button[aria-label="Dismiss"]',
+
+    // Email section and link
+    EMAIL_SECTION: 'section.ci-email',
+    EMAIL_LINK: 'section.ci-email a[href^="mailto:"]',
+
+    // Alternative selectors for email
+    EMAIL_SECTION_ALT: 'section[class*="email"]',
+    EMAIL_LINK_ALT: 'a[href^="mailto:"]',
+
+    // Profile URL section
+    PROFILE_SECTION: 'section.ci-vanity-url',
+    PROFILE_LINK: 'section.ci-vanity-url a[href*="linkedin.com/in/"]',
+
+    // Connected date section
+    CONNECTED_SECTION: 'section.ci-connected',
+
+    // Birthday section
+    BIRTHDAY_SECTION: 'section.ci-birthday'
   }
 };
 

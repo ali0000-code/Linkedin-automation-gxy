@@ -5,8 +5,10 @@ use App\Http\Controllers\Auth\LogoutController;
 use App\Http\Controllers\Campaign\CampaignActionController;
 use App\Http\Controllers\Campaign\CampaignController;
 use App\Http\Controllers\Extension\ExtensionController;
+use App\Http\Controllers\Mail\SentEmailController;
 use App\Http\Controllers\MessageTemplate\MessageTemplateController;
 use App\Http\Controllers\Prospect\ProspectController;
+use App\Http\Controllers\Settings\GmailSettingController;
 use App\Http\Controllers\Tag\TagController;
 use Illuminate\Support\Facades\Route;
 
@@ -142,6 +144,37 @@ Route::middleware('auth:sanctum')->group(function () {
 
     /*
     |--------------------------------------------------------------------------
+    | Settings Routes
+    |--------------------------------------------------------------------------
+    */
+    Route::prefix('settings')->group(function () {
+        // Gmail SMTP settings
+        Route::get('/gmail', [GmailSettingController::class, 'show']);
+        Route::post('/gmail', [GmailSettingController::class, 'store']);
+        Route::post('/gmail/verify', [GmailSettingController::class, 'verify']);
+        Route::delete('/gmail', [GmailSettingController::class, 'destroy']);
+    });
+
+    /*
+    |--------------------------------------------------------------------------
+    | Mail Routes
+    |--------------------------------------------------------------------------
+    */
+    Route::get('/mail', [SentEmailController::class, 'index']);
+    Route::post('/mail', [SentEmailController::class, 'store']);
+    Route::get('/mail/stats', [SentEmailController::class, 'stats']);
+    Route::get('/mail/pending-extractions', [SentEmailController::class, 'getPendingExtractions']);
+    Route::post('/mail/queue-from-campaign', [SentEmailController::class, 'queueFromCampaign']);
+    Route::post('/mail/send-bulk', [SentEmailController::class, 'sendBulk']);
+    Route::delete('/mail/bulk-delete', [SentEmailController::class, 'bulkDelete']);
+    Route::delete('/mail/discard-extraction/{campaignId}', [SentEmailController::class, 'discardExtraction']);
+    Route::get('/mail/{id}', [SentEmailController::class, 'show']);
+    Route::put('/mail/{id}', [SentEmailController::class, 'update']);
+    Route::post('/mail/{id}/send', [SentEmailController::class, 'send']);
+    Route::delete('/mail/{id}', [SentEmailController::class, 'destroy']);
+
+    /*
+    |--------------------------------------------------------------------------
     | Extension Routes
     |--------------------------------------------------------------------------
     |
@@ -160,5 +193,11 @@ Route::middleware('auth:sanctum')->group(function () {
 
         // Active campaigns for extension
         Route::get('/campaigns/active', [ExtensionController::class, 'getActiveCampaigns']);
+
+        // Get email extraction results for a campaign
+        Route::get('/campaigns/{id}/extraction-results', [ExtensionController::class, 'getExtractionResults']);
+
+        // Update prospect email (after extraction) - uses LinkedIn ID string
+        Route::patch('/prospects/{linkedinId}/email', [ExtensionController::class, 'updateProspectEmail']);
     });
 });

@@ -60,9 +60,9 @@ const ProspectsNew = () => {
   const updateTagMutation = useUpdateTag();
   const deleteTagMutation = useDeleteTag();
 
-  const prospects = prospectsData?.data || [];
+  const prospects = useMemo(() => prospectsData?.data || [], [prospectsData?.data]);
   const meta = prospectsData?.meta || {};
-  const tags = Array.isArray(tagsData) ? tagsData : [];
+  const tags = useMemo(() => Array.isArray(tagsData) ? tagsData : [], [tagsData]);
 
   // Accumulate prospects as we load more pages
   useEffect(() => {

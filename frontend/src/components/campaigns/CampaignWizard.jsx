@@ -40,6 +40,10 @@ const CampaignWizard = () => {
   const { data: messageTemplatesData } = useTemplates('message');
   const messageTemplates = messageTemplatesData?.templates || [];
 
+  // Fetch email templates
+  const { data: emailTemplatesData } = useTemplates('email');
+  const emailTemplates = emailTemplatesData?.templates || [];
+
   // Fetch tags (to show only tags with prospects)
   const { data: tagsData } = useTags();
   const allTags = Array.isArray(tagsData) ? tagsData : [];
@@ -85,12 +89,17 @@ const CampaignWizard = () => {
 
   const handleSave = (shouldStart = false) => {
     const selectedAction = actions.find(a => a.id === campaignData.selectedAction);
+    const isEmailAction = selectedAction?.key === 'email';
 
     // Prepare campaign data
     const payload = {
       name: campaignData.name,
       description: campaignData.description || null,
       daily_limit: campaignData.daily_limit,
+      // For email action, we use tag_id directly on campaign (prospects added on start)
+      tag_id: isEmailAction && campaignData.selectedTags.length > 0
+        ? campaignData.selectedTags[0] // Use first selected tag
+        : null,
       steps: [
         {
           campaign_action_id: campaignData.selectedAction,
@@ -109,7 +118,21 @@ const CampaignWizard = () => {
       onSuccess: async (response) => {
         const campaignId = response.campaign.id;
 
-        // Fetch prospects for the selected tags from the API
+        // For email campaigns, tag_id handles prospect selection on start
+        if (isEmailAction) {
+          if (shouldStart) {
+            startCampaign(campaignId, {
+              onSuccess: () => {
+                navigate('/campaign/list');
+              },
+            });
+          } else {
+            navigate('/campaign/list');
+          }
+          return;
+        }
+
+        // For other campaigns, fetch and add prospects manually
         try {
           // Get ALL prospects for the selected tags (not just first page)
           const prospectsResponse = await prospectService.getProspects({
@@ -163,6 +186,10 @@ const CampaignWizard = () => {
         if (action?.key === 'message') {
           return campaignData.selectedTemplateId !== null;
         }
+        if (action?.key === 'email') {
+          // Email template is required for email action
+          return campaignData.selectedTemplateId !== null;
+        }
         return true;
       case 4:
         return campaignData.selectedTags.length > 0;
@@ -190,6 +217,7 @@ const CampaignWizard = () => {
             actions={actions}
             invitationTemplates={invitationTemplates}
             messageTemplates={messageTemplates}
+            emailTemplates={emailTemplates}
             campaignData={campaignData}
             setCampaignData={setCampaignData}
           />
@@ -408,6 +436,14 @@ const StepActionSelection = ({ actions, loading, campaignData, setCampaignData }
                       d="M5 13l4 4L19 7"
                     />
                   )}
+                  {action.key === 'email' && (
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"
+                    />
+                  )}
                 </svg>
               </div>
               <div className="flex-1">
@@ -427,6 +463,7 @@ const StepActionConfig = ({
   actions,
   invitationTemplates,
   messageTemplates,
+  emailTemplates,
   campaignData,
   setCampaignData,
 }) => {
@@ -582,6 +619,79 @@ const StepActionConfig = ({
                   <div className="text-xs text-gray-500 mb-1">Preview:</div>
                   <div className="text-sm text-gray-700 whitespace-pre-wrap">
                     {messageTemplates.find((t) => t.id === campaignData.selectedTemplateId)?.content}
+                  </div>
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  // Email action: select email template for later use
+  if (selectedAction.key === 'email') {
+    return (
+      <div className="space-y-6">
+        <div>
+          <h2 className="text-xl font-bold text-gray-900 mb-2">Configure Email</h2>
+          <p className="text-sm text-gray-600">
+            Select an email template to use when sending emails to prospects.
+            The extension will visit each prospect's profile and extract their email from Contact Info.
+          </p>
+        </div>
+
+        <div className="p-4 bg-blue-50 rounded-lg border border-blue-200">
+          <div className="flex items-start space-x-3">
+            <svg className="w-5 h-5 text-blue-500 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+            <div className="text-sm text-blue-700">
+              <strong>How it works:</strong> The extension will automatically visit each prospect's LinkedIn profile,
+              open their Contact Info, and extract their email address. After extraction completes, you'll see
+              which prospects have emails and can send emails to them.
+            </div>
+          </div>
+        </div>
+
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-2">
+            Select Email Template <span className="text-red-500">*</span>
+          </label>
+          {emailTemplates.length === 0 ? (
+            <div className="text-sm text-gray-500 p-4 bg-gray-50 rounded-lg">
+              No email templates found. Please create one first in Message Templates (select "Email" type).
+            </div>
+          ) : (
+            <>
+              <select
+                value={campaignData.selectedTemplateId || ''}
+                onChange={(e) =>
+                  setCampaignData({
+                    ...campaignData,
+                    selectedTemplateId: parseInt(e.target.value),
+                  })
+                }
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-linkedin focus:border-transparent"
+              >
+                <option value="">Select an email template...</option>
+                {emailTemplates.map((template) => (
+                  <option key={template.id} value={template.id}>
+                    {template.name}
+                  </option>
+                ))}
+              </select>
+
+              {campaignData.selectedTemplateId && (
+                <div className="mt-3 p-3 bg-gray-50 rounded-lg">
+                  <div className="text-xs text-gray-500 mb-1">Email Preview:</div>
+                  <div className="text-sm text-gray-700">
+                    <div className="font-medium mb-1">
+                      Subject: {emailTemplates.find((t) => t.id === campaignData.selectedTemplateId)?.subject || 'No subject'}
+                    </div>
+                    <div className="whitespace-pre-wrap">
+                      {emailTemplates.find((t) => t.id === campaignData.selectedTemplateId)?.content}
+                    </div>
                   </div>
                 </div>
               )}

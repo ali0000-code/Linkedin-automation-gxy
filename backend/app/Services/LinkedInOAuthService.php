@@ -127,8 +127,8 @@ class LinkedInOAuthService
             $response = Http::asForm()->post('https://www.linkedin.com/oauth/v2/accessToken', [
                 'grant_type' => 'refresh_token',
                 'refresh_token' => $refreshToken,
-                'client_id' => config('services.linkedin-openid.client_id'),
-                'client_secret' => config('services.linkedin-openid.client_secret'),
+                'client_id' => config('services.linkedin.client_id'),
+                'client_secret' => config('services.linkedin.client_secret'),
             ]);
 
             if ($response->successful()) {

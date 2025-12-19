@@ -89,6 +89,19 @@ const MessageTemplates = () => {
       emptyTitle: 'No Message Templates',
       emptyDescription: 'Create your first direct message template to use in your campaigns',
       buttonText: 'Create Message Template'
+    },
+    {
+      id: 'email',
+      name: 'Email Templates',
+      icon: (
+        <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+        </svg>
+      ),
+      description: 'Email Templates are used to send emails to prospects. Requires an extracted email address and Gmail SMTP connection.',
+      emptyTitle: 'No Email Templates',
+      emptyDescription: 'Create your first email template to send emails to prospects',
+      buttonText: 'Create Email Template'
     }
   ];
 
@@ -238,6 +251,13 @@ const MessageTemplates = () => {
                           <h3 className="text-lg font-semibold text-gray-900 mb-2">
                             {template.name}
                           </h3>
+                          {template.type === 'email' && template.subject && (
+                            <div className="mb-2 px-3 py-1 bg-purple-50 rounded-lg inline-block">
+                              <span className="text-sm text-purple-700">
+                                <strong>Subject:</strong> {template.subject}
+                              </span>
+                            </div>
+                          )}
                           <p className="text-gray-700 whitespace-pre-wrap break-words">
                             {template.content}
                           </p>
