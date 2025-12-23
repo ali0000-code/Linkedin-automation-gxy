@@ -9,7 +9,8 @@
     "activeTab",
     "scripting",
     "tabs",
-    "notifications"
+    "notifications",
+    "cookies"
   ],
 
   "host_permissions": [
@@ -49,6 +50,7 @@
         "services/extractor.js",
         "services/actionExecutor.js",
         "services/queueProcessor.js",
+        "services/messageExtractor.js",
         "content-script.js"
       ],
       "run_at": "document_idle"

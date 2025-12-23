@@ -84,7 +84,7 @@ const Sidebar = () => {
       ]
     },
     { name: 'Mail', path: '/mail', icon: MailIcon, comingSoon: false },
-    { name: 'Inbox', path: '/inbox', icon: InboxIcon, comingSoon: true },
+    { name: 'Inbox', path: '/inbox', icon: InboxIcon, comingSoon: false },
     { name: 'Pricing', path: '/pricing', icon: PricingIcon, comingSoon: true },
     { name: 'Settings', path: '/settings', icon: SettingsIcon, comingSoon: false },
   ];

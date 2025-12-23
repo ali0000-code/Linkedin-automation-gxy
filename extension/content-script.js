@@ -174,6 +174,340 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
 
+  // ==================== INBOX SYNC MESSAGES ====================
+
+  // Sync inbox conversations
+  if (message.type === 'SYNC_INBOX') {
+    console.log('[Content Script] Inbox sync requested');
+
+    if (typeof window.MessageExtractor === 'undefined') {
+      sendResponse({
+        success: false,
+        error: 'Message extractor not loaded. Please refresh the page.'
+      });
+      return true;
+    }
+
+    // Perform sync
+    window.MessageExtractor.performFullSync(message.includeMessages || false, message.limit || 50)
+      .then(async conversations => {
+        // Send to backend API
+        try {
+          const response = await window.ExtensionAPI.request('/inbox/sync', 'POST', {
+            conversations: conversations
+          });
+          sendResponse({
+            success: true,
+            conversations: conversations.length,
+            message: response.message
+          });
+        } catch (error) {
+          // Still return conversations even if API fails
+          sendResponse({
+            success: true,
+            conversations: conversations.length,
+            apiError: error.message
+          });
+        }
+      })
+      .catch(error => {
+        console.error('[Content Script] Inbox sync error:', error);
+        sendResponse({
+          success: false,
+          error: error.message || 'Inbox sync failed'
+        });
+      });
+
+    return true;
+  }
+
+  // Sync messages for a specific conversation
+  if (message.type === 'SYNC_CONVERSATION_MESSAGES') {
+    console.log('[Content Script] Conversation messages sync requested');
+
+    if (typeof window.MessageExtractor === 'undefined') {
+      sendResponse({
+        success: false,
+        error: 'Message extractor not loaded.'
+      });
+      return true;
+    }
+
+    window.MessageExtractor.openAndExtractMessages(message.conversationId)
+      .then(async messages => {
+        // Send to backend API
+        try {
+          const response = await window.ExtensionAPI.request(
+            `/inbox/${message.backendConversationId}/sync-messages`,
+            'POST',
+            { messages: messages }
+          );
+          sendResponse({
+            success: true,
+            messages: messages.length,
+            message: response.message
+          });
+        } catch (error) {
+          sendResponse({
+            success: true,
+            messages: messages.length,
+            apiError: error.message
+          });
+        }
+      })
+      .catch(error => {
+        sendResponse({
+          success: false,
+          error: error.message
+        });
+      });
+
+    return true;
+  }
+
+  // Open a conversation (pre-load for faster sending)
+  if (message.type === 'OPEN_CONVERSATION') {
+    console.log('[Content Script] Open conversation requested:', message.conversationId);
+
+    const conversationUrl = `https://www.linkedin.com/messaging/thread/${message.conversationId}/`;
+
+    if (!window.location.href.includes(message.conversationId)) {
+      window.location.href = conversationUrl;
+    }
+
+    sendResponse({ success: true, message: 'Navigating to conversation' });
+    return true;
+  }
+
+  // Send a message via LinkedIn API (from content script for correct origin)
+  if (message.type === 'SEND_MESSAGE_VIA_API') {
+    console.log('[Content Script] Send message via API requested');
+
+    const sendViaApi = async () => {
+      const conversationId = message.conversationId;
+      const content = message.content;
+
+      // Get CSRF token from cookie
+      const getCsrfToken = () => {
+        const cookies = document.cookie.split(';');
+        for (const cookie of cookies) {
+          const [name, value] = cookie.trim().split('=');
+          if (name === 'JSESSIONID') {
+            return value.replace(/"/g, '');
+          }
+        }
+        return null;
+      };
+
+      const csrfToken = getCsrfToken();
+      if (!csrfToken) {
+        throw new Error('CSRF token not found. Please refresh the page.');
+      }
+
+      // Get current user's profile URN
+      const getProfileUrn = async () => {
+        const response = await fetch('https://www.linkedin.com/voyager/api/voyagerIdentityDashProfiles?q=memberIdentity&memberIdentity=me', {
+          method: 'GET',
+          headers: {
+            'accept': 'application/vnd.linkedin.normalized+json+2.1',
+            'csrf-token': csrfToken,
+            'x-restli-protocol-version': '2.0.0'
+          },
+          credentials: 'include'
+        });
+
+        if (response.ok) {
+          const data = await response.json();
+          if (data?.included) {
+            for (const entity of data.included) {
+              if (entity.entityUrn?.startsWith('urn:li:fsd_profile:')) {
+                return entity.entityUrn;
+              }
+            }
+          }
+        }
+        throw new Error('Could not get profile URN');
+      };
+
+      const profileUrn = await getProfileUrn();
+      console.log('[Content Script] Profile URN:', profileUrn);
+
+      // Generate UUID
+      const generateUUID = () => {
+        return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+          const r = Math.random() * 16 | 0;
+          const v = c === 'x' ? r : (r & 0x3 | 0x8);
+          return v.toString(16);
+        });
+      };
+
+      // Generate tracking ID as raw bytes (LinkedIn's format)
+      const generateTrackingId = () => {
+        const bytes = new Uint8Array(16);
+        crypto.getRandomValues(bytes);
+        return String.fromCharCode.apply(null, bytes);
+      };
+
+      // Build request body (exact format LinkedIn uses)
+      const body = {
+        dedupeByClientGeneratedToken: false,
+        mailboxUrn: profileUrn,
+        message: {
+          body: {
+            attributes: [],
+            text: content
+          },
+          conversationUrn: `urn:li:msg_conversation:(${profileUrn},${conversationId})`,
+          originToken: generateUUID(),
+          renderContentUnions: []
+        },
+        trackingId: generateTrackingId()
+      };
+
+      console.log('[Content Script] Sending to API...');
+      console.log('[Content Script] Body:', JSON.stringify(body));
+
+      // Mark message as sent to avoid it being detected as incoming
+      if (window.MessageExtractor?.markMessageAsSent) {
+        window.MessageExtractor.markMessageAsSent(content);
+      }
+
+      const response = await fetch('https://www.linkedin.com/voyager/api/voyagerMessagingDashMessengerMessages?action=createMessage', {
+        method: 'POST',
+        headers: {
+          'accept': 'application/json',
+          'content-type': 'text/plain;charset=UTF-8',
+          'csrf-token': csrfToken,
+          'x-li-lang': 'en_US',
+          'x-li-page-instance': `urn:li:page:d_flagship3_messaging_conversation_detail;${generateUUID().replace(/-/g, '').substring(0, 22)}==`,
+          'x-li-track': JSON.stringify({
+            clientVersion: '1.13.41695',
+            mpVersion: '1.13.41695',
+            osName: 'web',
+            timezoneOffset: 5,
+            timezone: 'Asia/Karachi',
+            deviceFormFactor: 'DESKTOP',
+            mpName: 'voyager-web',
+            displayDensity: 2,
+            displayWidth: 2940,
+            displayHeight: 1912
+          }),
+          'x-restli-protocol-version': '2.0.0'
+        },
+        body: JSON.stringify(body),
+        credentials: 'include'
+      });
+
+      const responseText = await response.text();
+      console.log('[Content Script] Response status:', response.status);
+      console.log('[Content Script] Response:', responseText);
+
+      if (!response.ok) {
+        throw new Error(`API error ${response.status}: ${responseText}`);
+      }
+
+      const data = JSON.parse(responseText);
+      return {
+        success: true,
+        messageId: data?.value?.createdEventUrn || null
+      };
+    };
+
+    sendViaApi()
+      .then(result => {
+        console.log('[Content Script] API send success:', result);
+        sendResponse(result);
+      })
+      .catch(error => {
+        console.error('[Content Script] API send error:', error);
+        sendResponse({ success: false, error: error.message });
+      });
+
+    return true;
+  }
+
+  // Send a message in LinkedIn (assumes conversation is already open via pre-open)
+  if (message.type === 'SEND_LINKEDIN_MESSAGE') {
+    console.log('[Content Script] Send LinkedIn message requested');
+    console.log('[Content Script] Current URL:', window.location.href);
+    console.log('[Content Script] Target conversation:', message.linkedinConversationId);
+
+    if (typeof window.MessageExtractor === 'undefined') {
+      sendResponse({
+        success: false,
+        error: 'Message extractor not loaded.'
+      });
+      return true;
+    }
+
+    const sendMsg = async () => {
+      // Check if we're on the right conversation
+      const isOnCorrectConversation = window.location.href.includes(message.linkedinConversationId);
+
+      if (!isOnCorrectConversation) {
+        // If not on correct conversation, tell background to navigate first
+        // Don't navigate here as it will reload the content script
+        console.log('[Content Script] Not on correct conversation, requesting navigation...');
+        throw new Error('Please click on the conversation first to open it, then try sending again.');
+      }
+
+      // Wait for the message input to be ready
+      console.log('[Content Script] Waiting for message input...');
+      const inputSelectors = [
+        '.msg-form__contenteditable[contenteditable="true"]',
+        '.msg-form__contenteditable',
+        '[contenteditable="true"][role="textbox"]'
+      ];
+
+      let inputFound = false;
+      for (const selector of inputSelectors) {
+        const input = await window.MessageExtractor.waitForElement(selector, 3000);
+        if (input) {
+          console.log('[Content Script] Found input:', selector);
+          inputFound = true;
+          break;
+        }
+      }
+
+      if (!inputFound) {
+        throw new Error('Message input not found. Please make sure the conversation is fully loaded.');
+      }
+
+      // Send the message
+      console.log('[Content Script] Sending message...');
+      const success = await window.MessageExtractor.sendMessage(message.content);
+      console.log('[Content Script] Send result:', success);
+
+      if (success && message.messageId) {
+        // Mark message as sent in backend (fire and forget)
+        window.ExtensionAPI.request(
+          `/inbox/messages/${message.messageId}/mark-sent`,
+          'POST',
+          { success: true }
+        ).catch(error => {
+          console.error('[Content Script] Failed to mark message as sent:', error);
+        });
+      }
+
+      return success;
+    };
+
+    sendMsg()
+      .then(success => {
+        console.log('[Content Script] Sending response, success:', success);
+        sendResponse({ success: success });
+      })
+      .catch(error => {
+        console.error('[Content Script] Send message error:', error);
+        sendResponse({
+          success: false,
+          error: error.message
+        });
+      });
+
+    return true;
+  }
+
   // ==================== UTILITY MESSAGES ====================
 
   // Ping request to check if content script is loaded

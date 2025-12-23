@@ -1,0 +1,90 @@
+<?php
+
+namespace App\Models;
+
+use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
+
+/**
+ * LinkedInMessage Model
+ *
+ * Represents an individual message within a LinkedIn conversation.
+ */
+class LinkedInMessage extends Model
+{
+    // Status constants
+    const STATUS_SYNCED = 'synced';   // Imported from LinkedIn
+    const STATUS_PENDING = 'pending'; // Queued to be sent
+    const STATUS_SENT = 'sent';       // Successfully sent via extension
+    const STATUS_FAILED = 'failed';   // Failed to send
+
+    protected $table = 'linkedin_messages';
+
+    protected $fillable = [
+        'conversation_id',
+        'user_id',
+        'linkedin_message_id',
+        'content',
+        'is_from_me',
+        'sender_name',
+        'sender_linkedin_id',
+        'sent_at',
+        'is_read',
+        'status',
+        'error_message',
+    ];
+
+    protected $casts = [
+        'sent_at' => 'datetime',
+        'is_from_me' => 'boolean',
+        'is_read' => 'boolean',
+    ];
+
+    /**
+     * Get the conversation this message belongs to.
+     */
+    public function conversation(): BelongsTo
+    {
+        return $this->belongsTo(Conversation::class);
+    }
+
+    /**
+     * Get the user this message belongs to.
+     */
+    public function user(): BelongsTo
+    {
+        return $this->belongsTo(User::class);
+    }
+
+    /**
+     * Scope for messages from me.
+     */
+    public function scopeFromMe($query)
+    {
+        return $query->where('is_from_me', true);
+    }
+
+    /**
+     * Scope for messages from others.
+     */
+    public function scopeFromOthers($query)
+    {
+        return $query->where('is_from_me', false);
+    }
+
+    /**
+     * Scope for pending messages (to be sent).
+     */
+    public function scopePending($query)
+    {
+        return $query->where('status', self::STATUS_PENDING);
+    }
+
+    /**
+     * Scope for unread messages.
+     */
+    public function scopeUnread($query)
+    {
+        return $query->where('is_read', false);
+    }
+}

@@ -5,6 +5,9 @@
  * In Manifest V3, this runs as a service worker (event-driven, not persistent).
  */
 
+// Import LinkedIn API service
+importScripts('services/linkedinApi.js');
+
 console.log('[Background] LinkedIn Automation service worker loaded');
 
 // Track queue status
@@ -247,6 +250,50 @@ chrome.runtime.onMessageExternal.addListener((message, sender, sendResponse) => 
     return false;
   }
 
+  // Handle SYNC_INBOX from webapp
+  if (message.type === 'SYNC_INBOX') {
+    console.log('[Background] Syncing inbox from webapp');
+    syncInboxOnLinkedIn(message.limit, message.includeMessages)
+      .then(result => sendResponse(result))
+      .catch(error => sendResponse({ success: false, error: error.message }));
+    return true; // Async response
+  }
+
+  // Handle OPEN_CONVERSATION from webapp (pre-load conversation for faster sending)
+  if (message.type === 'OPEN_CONVERSATION') {
+    console.log('[Background] Opening conversation from webapp:', message.conversationId);
+    openConversationOnLinkedIn(message.conversationId)
+      .then(result => sendResponse(result))
+      .catch(error => sendResponse({ success: false, error: error.message }));
+    return true; // Async response
+  }
+
+  // Handle SEND_LINKEDIN_MESSAGE from webapp
+  if (message.type === 'SEND_LINKEDIN_MESSAGE') {
+    console.log('[Background] Sending LinkedIn message from webapp');
+    sendMessageOnLinkedIn(message.linkedinConversationId, message.content, message.messageId)
+      .then(result => sendResponse(result))
+      .catch(error => sendResponse({ success: false, error: error.message }));
+    return true; // Async response
+  }
+
+  // Handle SYNC_CONVERSATION_MESSAGES from webapp
+  if (message.type === 'SYNC_CONVERSATION_MESSAGES') {
+    console.log('[Background] Syncing conversation messages from webapp');
+    syncConversationMessages(message.conversationId, message.backendConversationId)
+      .then(result => sendResponse(result))
+      .catch(error => sendResponse({ success: false, error: error.message }));
+    return true; // Async response
+  }
+
+  // Handle CHECK_LINKEDIN_LOGIN from webapp
+  if (message.type === 'CHECK_LINKEDIN_LOGIN') {
+    LinkedInAPI.isLoggedIn()
+      .then(isLoggedIn => sendResponse({ success: true, isLoggedIn }))
+      .catch(error => sendResponse({ success: false, error: error.message }));
+    return true; // Async response
+  }
+
   if (message.type === 'AUTH_SUCCESS' && message.token) {
     handleAuthSuccess(message.token)
       .then(() => {
@@ -357,6 +404,47 @@ async function handleLogout() {
 async function getApiUrl() {
   const result = await chrome.storage.local.get('api_url');
   return result.api_url || 'http://localhost:8000/api';
+}
+
+/**
+ * Make API call to backend from background script
+ * @param {string} endpoint - API endpoint
+ * @param {string} method - HTTP method
+ * @param {object|null} body - Request body
+ * @returns {Promise<object>}
+ */
+async function backgroundApiCall(endpoint, method = 'GET', body = null) {
+  const token = await getAuthToken();
+  const apiUrl = await getApiUrl();
+
+  const headers = {
+    'Content-Type': 'application/json',
+    'Accept': 'application/json'
+  };
+
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`;
+  }
+
+  const options = {
+    method,
+    headers
+  };
+
+  if (body && (method === 'POST' || method === 'PUT' || method === 'PATCH')) {
+    options.body = JSON.stringify(body);
+  }
+
+  const response = await fetch(`${apiUrl}${endpoint}`, options);
+  const data = await response.json();
+
+  if (!response.ok) {
+    const error = new Error(data.message || 'API request failed');
+    error.status = response.status;
+    throw error;
+  }
+
+  return data;
 }
 
 /**
@@ -502,6 +590,343 @@ async function stopQueueOnLinkedIn(reason = 'User stopped') {
   } catch (error) {
     console.error('[Background] Failed to stop queue:', error);
     throw error;
+  }
+}
+
+/**
+ * Open a specific conversation on LinkedIn
+ * With API approach, this is just a no-op (we don't need to pre-load tabs)
+ * @param {string} conversationId - LinkedIn conversation/thread ID
+ * @returns {Promise<object>}
+ */
+async function openConversationOnLinkedIn(conversationId) {
+  console.log('[Background] Open conversation requested:', conversationId);
+  // With API approach, we don't need to pre-load tabs
+  // The API works directly without needing the tab open
+  return { success: true, message: 'Ready (API mode)' };
+}
+
+/**
+ * Fetch messages for a specific conversation via API
+ * @param {string} conversationId - LinkedIn conversation ID
+ * @param {number} backendConversationId - Backend conversation ID
+ * @returns {Promise<object>}
+ */
+async function syncConversationMessages(conversationId, backendConversationId) {
+  console.log('[Background] Syncing messages for conversation:', conversationId);
+
+  try {
+    const isLoggedIn = await LinkedInAPI.isLoggedIn();
+    if (!isLoggedIn) {
+      throw new Error('Not logged in to LinkedIn. Please log in first.');
+    }
+
+    // Fetch messages via API
+    const messages = await LinkedInAPI.getMessages(conversationId, 50);
+    console.log(`[Background] Fetched ${messages.length} messages via API`);
+
+    // Send to backend
+    if (backendConversationId) {
+      try {
+        const response = await backgroundApiCall(
+          `/inbox/${backendConversationId}/sync-messages`,
+          'POST',
+          { messages: messages }
+        );
+        return {
+          success: true,
+          messages: messages.length,
+          message: response.message
+        };
+      } catch (apiError) {
+        return {
+          success: true,
+          messages: messages.length,
+          apiError: apiError.message
+        };
+      }
+    }
+
+    return { success: true, messages: messages.length };
+
+  } catch (error) {
+    console.error('[Background] Failed to sync messages:', error);
+    throw error;
+  }
+}
+
+/**
+ * Sync inbox using LinkedIn API directly
+ * @param {number} limit - Maximum conversations to sync
+ * @param {boolean} includeMessages - Whether to include messages
+ * @returns {Promise<object>}
+ */
+async function syncInboxOnLinkedIn(limit = 50, includeMessages = false) {
+  console.log('[Background] Syncing inbox via LinkedIn API...');
+
+  try {
+    // Check if logged in
+    const isLoggedIn = await LinkedInAPI.isLoggedIn();
+    if (!isLoggedIn) {
+      throw new Error('Not logged in to LinkedIn. Please log in first.');
+    }
+
+    // Fetch conversations via API
+    const conversations = await LinkedInAPI.getConversations(limit);
+    console.log(`[Background] Fetched ${conversations.length} conversations via API`);
+
+    // Optionally fetch messages for each conversation
+    if (includeMessages && conversations.length > 0) {
+      for (const conv of conversations) {
+        try {
+          conv.messages = await LinkedInAPI.getMessages(conv.linkedin_conversation_id, 20);
+        } catch (error) {
+          console.error(`[Background] Failed to fetch messages for ${conv.linkedin_conversation_id}:`, error);
+          conv.messages = [];
+        }
+      }
+    }
+
+    // Send to backend API
+    try {
+      const apiResponse = await backgroundApiCall('/inbox/sync', 'POST', {
+        conversations: conversations
+      });
+
+      return {
+        success: true,
+        conversations: conversations.length,
+        message: apiResponse.message || `Synced ${conversations.length} conversations`
+      };
+    } catch (apiError) {
+      // Return conversations even if backend sync fails
+      return {
+        success: true,
+        conversations: conversations.length,
+        apiError: apiError.message
+      };
+    }
+
+  } catch (error) {
+    console.error('[Background] Failed to sync inbox:', error);
+    throw error;
+  }
+}
+
+/**
+ * Wait for content script to be ready by pinging it
+ * @param {number} tabId - Tab ID
+ * @param {number} maxAttempts - Maximum ping attempts
+ * @returns {Promise<boolean>}
+ */
+async function waitForContentScript(tabId, maxAttempts = 10) {
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    try {
+      const response = await chrome.tabs.sendMessage(tabId, { type: 'PING' });
+      if (response?.success) {
+        console.log('[Background] Content script is ready');
+        return true;
+      }
+    } catch (e) {
+      console.log('[Background] Waiting for content script, attempt', attempt + 1);
+    }
+    await new Promise(resolve => setTimeout(resolve, 500));
+  }
+  return false;
+}
+
+/**
+ * Send a message on LinkedIn using the API
+ * Makes the request from content script to have correct origin/referer headers
+ * @param {string} conversationId - LinkedIn conversation ID
+ * @param {string} content - Message content
+ * @param {number} messageId - Backend message ID
+ * @returns {Promise<object>}
+ */
+async function sendMessageOnLinkedIn(conversationId, content, messageId) {
+  console.log('[Background] Sending message via LinkedIn API...');
+  console.log('[Background] Conversation:', conversationId);
+  console.log('[Background] Content length:', content?.length);
+
+  // Check if logged in
+  const isLoggedIn = await LinkedInAPI.isLoggedIn();
+  console.log('[Background] Is logged in:', isLoggedIn);
+
+  if (!isLoggedIn) {
+    throw new Error('Not logged in to LinkedIn. Please log in first.');
+  }
+
+  // Find a LinkedIn tab to make the request from (for correct origin/referer headers)
+  let tabs = await chrome.tabs.query({ url: 'https://www.linkedin.com/*' });
+
+  if (tabs.length === 0) {
+    // Create a LinkedIn tab if none exists
+    console.log('[Background] No LinkedIn tab found, creating one...');
+    const newTab = await chrome.tabs.create({
+      url: 'https://www.linkedin.com/messaging/',
+      active: false
+    });
+    await waitForTabLoad(newTab.id);
+    await new Promise(resolve => setTimeout(resolve, 2000));
+    tabs = [newTab];
+  }
+
+  const linkedInTab = tabs[0];
+  console.log('[Background] Using LinkedIn tab:', linkedInTab.id);
+
+  // Wait for content script to be ready
+  const isReady = await waitForContentScript(linkedInTab.id, 10);
+  if (!isReady) {
+    throw new Error('Content script not ready. Please refresh the LinkedIn page.');
+  }
+
+  // Send message via content script (which has correct origin)
+  try {
+    console.log('[Background] Sending via content script...');
+    const response = await chrome.tabs.sendMessage(linkedInTab.id, {
+      type: 'SEND_MESSAGE_VIA_API',
+      conversationId: conversationId,
+      content: content,
+      messageId: messageId
+    });
+
+    console.log('[Background] Content script response:', response);
+
+    if (response?.success) {
+      // Mark as sent in backend
+      if (messageId) {
+        try {
+          await backgroundApiCall(`/inbox/messages/${messageId}/mark-sent`, 'POST', {
+            success: true,
+            linkedin_message_id: response.messageId
+          });
+        } catch (apiError) {
+          console.error('[Background] Failed to mark message as sent:', apiError);
+        }
+      }
+      return { success: true, message: 'Message sent via API' };
+    } else {
+      throw new Error(response?.error || 'Failed to send message');
+    }
+  } catch (error) {
+    console.error('[Background] Content script error:', error);
+
+    // Mark as failed in backend
+    if (messageId) {
+      try {
+        await backgroundApiCall(`/inbox/messages/${messageId}/mark-sent`, 'POST', {
+          success: false,
+          error_message: error.message
+        });
+      } catch (apiError) {
+        console.error('[Background] Failed to mark message as failed:', apiError);
+      }
+    }
+
+    throw error;
+  }
+}
+
+/**
+ * Send message using DOM manipulation (fallback method)
+ * @param {string} conversationId - LinkedIn conversation ID
+ * @param {string} content - Message content
+ * @param {number} messageId - Backend message ID
+ * @returns {Promise<object>}
+ */
+async function sendMessageViaDom(conversationId, content, messageId) {
+  console.log('[Background] Sending message via DOM method...');
+
+  const targetUrl = `https://www.linkedin.com/messaging/thread/${conversationId}/`;
+
+  // Find existing LinkedIn messaging tab or any LinkedIn tab
+  let tabs = await chrome.tabs.query({ url: 'https://www.linkedin.com/*' });
+  let linkedInTab = null;
+  let needsNavigation = true;
+
+  // First, look for a tab already on this conversation
+  for (const tab of tabs) {
+    if (tab.url?.includes(conversationId)) {
+      linkedInTab = tab;
+      needsNavigation = false;
+      console.log('[Background] Found tab already on conversation:', tab.id);
+      break;
+    }
+  }
+
+  // If not found, use any LinkedIn tab
+  if (!linkedInTab && tabs.length > 0) {
+    linkedInTab = tabs[0];
+    console.log('[Background] Using existing LinkedIn tab:', linkedInTab.id);
+  }
+
+  // If no LinkedIn tab exists, create one
+  if (!linkedInTab) {
+    console.log('[Background] Creating new LinkedIn tab...');
+    linkedInTab = await chrome.tabs.create({
+      url: targetUrl,
+      active: true // Make it active so user can see what's happening
+    });
+    needsNavigation = false;
+
+    // Wait for tab to fully load
+    await waitForTabLoad(linkedInTab.id);
+    await new Promise(resolve => setTimeout(resolve, 3000));
+  }
+
+  // Navigate to conversation if needed
+  if (needsNavigation) {
+    console.log('[Background] Navigating to conversation...');
+    await chrome.tabs.update(linkedInTab.id, { url: targetUrl, active: true });
+    await waitForTabLoad(linkedInTab.id);
+    await new Promise(resolve => setTimeout(resolve, 3000));
+  }
+
+  // Focus the tab
+  try {
+    await chrome.tabs.update(linkedInTab.id, { active: true });
+    await chrome.windows.update(linkedInTab.windowId, { focused: true });
+  } catch (e) {
+    console.log('[Background] Could not focus tab:', e.message);
+  }
+
+  // Wait for content script with more retries
+  console.log('[Background] Waiting for content script...');
+  const isReady = await waitForContentScript(linkedInTab.id, 20);
+  if (!isReady) {
+    throw new Error('Content script not responding. Please refresh the LinkedIn tab and try again.');
+  }
+
+  // Send via content script
+  console.log('[Background] Sending message via content script...');
+  try {
+    const response = await chrome.tabs.sendMessage(linkedInTab.id, {
+      type: 'SEND_LINKEDIN_MESSAGE',
+      linkedinConversationId: conversationId,
+      content: content,
+      messageId: messageId
+    });
+
+    console.log('[Background] Content script response:', response);
+
+    if (response?.success) {
+      // Mark as sent
+      if (messageId) {
+        try {
+          await backgroundApiCall(`/inbox/messages/${messageId}/mark-sent`, 'POST', {
+            success: true
+          });
+        } catch (e) {
+          console.error('[Background] Failed to mark as sent:', e);
+        }
+      }
+      return { success: true, message: 'Message sent via DOM' };
+    } else {
+      throw new Error(response?.error || 'Failed to send message via DOM');
+    }
+  } catch (error) {
+    console.error('[Background] Content script error:', error);
+    throw new Error(`DOM method failed: ${error.message}`);
   }
 }
 

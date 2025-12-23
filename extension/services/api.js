@@ -403,3 +403,53 @@ async function getExtractionResults(campaignId) {
   }
   return await apiCall(`/extension/campaigns/${campaignId}/extraction-results`, 'GET');
 }
+
+// ==================== EXPOSE ON WINDOW ====================
+// Expose ExtensionAPI on window for use by content scripts
+
+window.ExtensionAPI = {
+  /**
+   * Generic request method for API calls
+   * Automatically routes through background script when in content script context
+   * @param {string} endpoint - API endpoint
+   * @param {string} method - HTTP method
+   * @param {object|null} body - Request body
+   * @returns {Promise<object>}
+   */
+  request: async function(endpoint, method = 'GET', body = null) {
+    if (isContentScriptContext()) {
+      return await backgroundApiCall(endpoint, method, body);
+    }
+    return await apiCall(endpoint, method, body);
+  },
+
+  // Expose individual methods
+  logout,
+  getUser,
+  bulkImportProspects,
+  getProspectStats,
+  getProspects,
+  getProspect,
+  deleteProspect,
+  getCampaigns,
+  getCampaign,
+  createCampaign,
+  updateCampaign,
+  deleteCampaign,
+  addProspectsToCampaign,
+  removeProspectsFromCampaign,
+  startCampaign,
+  pauseCampaign,
+  getCampaignStats,
+  getCampaignActions,
+  getCampaignAction,
+  verifyLinkedInAccount,
+  getNextAction,
+  completeAction,
+  getActionStats,
+  getActiveCampaigns,
+  updateProspectEmail,
+  getExtractionResults,
+};
+
+console.log('[API] ExtensionAPI initialized on window');

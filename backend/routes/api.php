@@ -5,6 +5,7 @@ use App\Http\Controllers\Auth\LogoutController;
 use App\Http\Controllers\Campaign\CampaignActionController;
 use App\Http\Controllers\Campaign\CampaignController;
 use App\Http\Controllers\Extension\ExtensionController;
+use App\Http\Controllers\Inbox\InboxController;
 use App\Http\Controllers\Mail\SentEmailController;
 use App\Http\Controllers\MessageTemplate\MessageTemplateController;
 use App\Http\Controllers\Prospect\ProspectController;
@@ -172,6 +173,23 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::put('/mail/{id}', [SentEmailController::class, 'update']);
     Route::post('/mail/{id}/send', [SentEmailController::class, 'send']);
     Route::delete('/mail/{id}', [SentEmailController::class, 'destroy']);
+
+    /*
+    |--------------------------------------------------------------------------
+    | Inbox Routes (LinkedIn Messages)
+    |--------------------------------------------------------------------------
+    */
+    Route::get('/inbox', [InboxController::class, 'index']);
+    Route::get('/inbox/stats', [InboxController::class, 'stats']);
+    Route::post('/inbox/sync', [InboxController::class, 'sync']);
+    Route::get('/inbox/pending-messages', [InboxController::class, 'pendingMessages']);
+    Route::get('/inbox/{id}', [InboxController::class, 'show']);
+    Route::post('/inbox/{id}/sync-messages', [InboxController::class, 'syncMessages']);
+    Route::post('/inbox/{id}/send', [InboxController::class, 'sendMessage']);
+    Route::post('/inbox/{id}/read', [InboxController::class, 'markAsRead']);
+    Route::delete('/inbox/{id}', [InboxController::class, 'destroy']);
+    Route::post('/inbox/messages/{id}/mark-sent', [InboxController::class, 'markMessageSent']);
+    Route::post('/inbox/incoming-message', [InboxController::class, 'incomingMessage']);
 
     /*
     |--------------------------------------------------------------------------

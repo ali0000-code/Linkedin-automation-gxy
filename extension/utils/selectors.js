@@ -142,6 +142,114 @@ const LINKEDIN_SELECTORS = {
   },
 
   /**
+   * Messaging / Inbox Selectors
+   * URL: https://www.linkedin.com/messaging/
+   * Updated based on actual LinkedIn HTML structure (Dec 2024)
+   */
+  MESSAGING: {
+    // Conversation list container
+    CONVERSATION_LIST_CONTAINERS: [
+      '.msg-conversations-container__conversations-list',
+      '.msg-conversations-container',
+      '[class*="msg-conversations-container"]'
+    ],
+
+    // Individual conversation items - the parent <li> elements
+    CONVERSATION_ITEMS: [
+      'li.msg-conversation-listitem',
+      '.msg-conversations-container__convo-item-link',
+      '.msg-conversation-listitem__link'
+    ],
+
+    // The clickable conversation div (not an <a> tag!)
+    CONVERSATION_LINK_DIV: [
+      '.msg-conversation-listitem__link',
+      '.msg-conversations-container__convo-item-link'
+    ],
+
+    // Participant name in conversation list
+    PARTICIPANT_NAME: [
+      'h3.msg-conversation-listitem__participant-names',
+      '.msg-conversation-card__participant-names',
+      'h3.msg-conversation-card__participant-names'
+    ],
+
+    // Avatar image
+    AVATAR: [
+      'img.presence-entity__image',
+      '.presence-entity__image',
+      '.msg-selectable-entity__entity img'
+    ],
+
+    // Last message preview
+    MESSAGE_PREVIEW: [
+      'p.msg-conversation-card__message-snippet',
+      '.msg-conversation-card__message-snippet',
+      '.msg-conversation-card__message-snippet-container p'
+    ],
+
+    // Timestamp
+    TIMESTAMP: [
+      'time.msg-conversation-listitem__time-stamp',
+      'time.msg-conversation-card__time-stamp',
+      '.msg-conversation-card__time-stamp'
+    ],
+
+    // Unread count badge
+    UNREAD_COUNT: [
+      '.msg-conversation-listitem__unread-count',
+      '.msg-conversation-card__unread-count'
+    ],
+
+    // Message list (in conversation view)
+    MESSAGE_LIST: [
+      '.msg-s-message-list',
+      'ul.msg-s-message-list'
+    ],
+
+    // Individual message event
+    MESSAGE_ITEM: [
+      'li.msg-s-message-list__event',
+      '.msg-s-event-listitem'
+    ],
+
+    // Message content
+    MESSAGE_CONTENT: [
+      'p.msg-s-event-listitem__body',
+      '.msg-s-event-listitem__body',
+      '.msg-s-event__content p'
+    ],
+
+    // Sender name in message
+    MESSAGE_SENDER: [
+      '.msg-s-message-group__profile-link',
+      '.msg-s-message-group__name',
+      'span.msg-s-message-group__name'
+    ],
+
+    // Message timestamp
+    MESSAGE_TIMESTAMP: [
+      'time.msg-s-message-group__timestamp',
+      '.msg-s-message-group__timestamp'
+    ],
+
+    // Message URN attribute (for message ID)
+    MESSAGE_URN_ATTR: 'data-event-urn',
+
+    // Message input
+    MESSAGE_INPUT: [
+      '.msg-form__contenteditable',
+      '[contenteditable="true"][role="textbox"]'
+    ],
+
+    // Send button
+    SEND_BUTTON: [
+      '.msg-form__send-button',
+      'button.msg-form__send-button'
+    ]
+  },
+
+  /**
    * Contact Info Extraction (for email)
    * Opens from profile page top card
    */

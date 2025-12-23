@@ -28,7 +28,7 @@ return new class extends Migration
             $table->text('body');
 
             // Status tracking
-            $table->enum('status', ['pending', 'sent', 'failed'])->default('pending');
+            $table->enum('status', ['pending', 'sent', 'failed', 'draft'])->default('pending');
             $table->timestamp('sent_at')->nullable();
             $table->text('error_message')->nullable();
 

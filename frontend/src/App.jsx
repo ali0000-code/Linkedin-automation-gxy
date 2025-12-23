@@ -19,6 +19,7 @@ import CampaignDetails from './pages/CampaignDetails';
 import MessageTemplates from './pages/MessageTemplates';
 import Settings from './pages/Settings';
 import Mail from './pages/Mail';
+import Inbox from './pages/Inbox';
 import ComingSoon from './pages/ComingSoon';
 import NotFound from './pages/NotFound';
 
@@ -192,7 +193,7 @@ function App() {
             path="/inbox"
             element={
               <ProtectedRoute>
-                <ComingSoon title="Inbox" description="Message inbox features are coming soon!" />
+                <Inbox />
               </ProtectedRoute>
             }
           />
