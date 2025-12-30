@@ -271,8 +271,26 @@ chrome.runtime.onMessageExternal.addListener((message, sender, sendResponse) => 
   // Handle SEND_LINKEDIN_MESSAGE from webapp
   if (message.type === 'SEND_LINKEDIN_MESSAGE') {
     console.log('[Background] Sending LinkedIn message from webapp');
-    sendMessageOnLinkedIn(message.linkedinConversationId, message.content, message.messageId)
-      .then(result => sendResponse(result))
+    const conversationId = message.linkedinConversationId;
+
+    sendMessageOnLinkedIn(conversationId, message.content, message.messageId)
+      .then(result => {
+        if (result.success) {
+          // Track this conversation for polling (so we check it for replies)
+          activeConversations.add(conversationId);
+          console.log('[Background] 📝 Added conversation to active polling:', conversationId);
+
+          // Save to storage for persistence
+          chrome.storage.local.set({ active_conversations: Array.from(activeConversations) });
+
+          // Auto-start polling when user sends a message
+          if (!messagePollingInterval) {
+            console.log('[Background] Auto-starting message polling after send');
+            startMessagePolling(15000); // Poll every 15 seconds for active conversations
+          }
+        }
+        sendResponse(result);
+      })
       .catch(error => sendResponse({ success: false, error: error.message }));
     return true; // Async response
   }
@@ -656,13 +674,13 @@ async function syncConversationMessages(conversationId, backendConversationId) {
 }
 
 /**
- * Sync inbox using LinkedIn API directly
+ * Sync inbox using LinkedIn API via content script (for correct origin headers)
  * @param {number} limit - Maximum conversations to sync
  * @param {boolean} includeMessages - Whether to include messages
  * @returns {Promise<object>}
  */
 async function syncInboxOnLinkedIn(limit = 50, includeMessages = false) {
-  console.log('[Background] Syncing inbox via LinkedIn API...');
+  console.log('[Background] Syncing inbox via LinkedIn API (through content script)...');
 
   try {
     // Check if logged in
@@ -671,19 +689,79 @@ async function syncInboxOnLinkedIn(limit = 50, includeMessages = false) {
       throw new Error('Not logged in to LinkedIn. Please log in first.');
     }
 
-    // Fetch conversations via API
-    const conversations = await LinkedInAPI.getConversations(limit);
+    // Find a LinkedIn tab to make the request from (for correct origin/referer headers)
+    let tabs = await chrome.tabs.query({ url: 'https://www.linkedin.com/*' });
+
+    if (tabs.length === 0) {
+      // Create a LinkedIn tab if none exists
+      console.log('[Background] No LinkedIn tab found, creating one...');
+      const newTab = await chrome.tabs.create({
+        url: 'https://www.linkedin.com/messaging/',
+        active: false
+      });
+      await waitForTabLoad(newTab.id);
+      await new Promise(resolve => setTimeout(resolve, 2000));
+      tabs = [newTab];
+    }
+
+    const linkedInTab = tabs[0];
+    console.log('[Background] Using LinkedIn tab:', linkedInTab.id);
+
+    // Wait for content script to be ready
+    const isReady = await waitForContentScript(linkedInTab.id, 10);
+    if (!isReady) {
+      throw new Error('Content script not ready. Please refresh the LinkedIn page.');
+    }
+
+    // Fetch conversations via content script (which has correct origin)
+    console.log('[Background] Fetching conversations via content script...');
+    const response = await chrome.tabs.sendMessage(linkedInTab.id, {
+      type: 'SYNC_CONVERSATIONS_VIA_API',
+      count: limit
+    });
+
+    console.log('[Background] Content script response:', response);
+
+    if (!response?.success) {
+      throw new Error(response?.error || 'Failed to fetch conversations');
+    }
+
+    const conversations = response.conversations || [];
     console.log(`[Background] Fetched ${conversations.length} conversations via API`);
 
-    // Optionally fetch messages for each conversation
-    if (includeMessages && conversations.length > 0) {
-      for (const conv of conversations) {
-        try {
-          conv.messages = await LinkedInAPI.getMessages(conv.linkedin_conversation_id, 20);
-        } catch (error) {
-          console.error(`[Background] Failed to fetch messages for ${conv.linkedin_conversation_id}:`, error);
-          conv.messages = [];
+    // Store synced conversations for polling (so we can check them for new messages later)
+    if (conversations.length > 0) {
+      const syncedConversations = conversations.map(c => ({
+        conversationId: c.linkedin_conversation_id,
+        participantName: c.participant_name || 'Unknown'
+      }));
+      await chrome.storage.local.set({ synced_conversations: syncedConversations });
+      console.log(`[Background] Stored ${syncedConversations.length} conversations for polling`);
+    }
+
+    // Always fetch recent messages for each conversation (to catch missed messages)
+    if (conversations.length > 0) {
+      console.log('[Background] Fetching recent messages for each conversation...');
+
+      // Ask content script to fetch messages for all conversations
+      try {
+        const messagesResponse = await chrome.tabs.sendMessage(linkedInTab.id, {
+          type: 'FETCH_MESSAGES_FOR_CONVERSATIONS',
+          conversationIds: conversations.map(c => c.linkedin_conversation_id).slice(0, 10) // Limit to first 10
+        });
+
+        if (messagesResponse?.success && messagesResponse.conversationMessages) {
+          // Attach messages to conversations
+          for (const conv of conversations) {
+            const msgs = messagesResponse.conversationMessages[conv.linkedin_conversation_id];
+            if (msgs && msgs.length > 0) {
+              conv.messages = msgs;
+              console.log(`[Background] Got ${msgs.length} messages for ${conv.linkedin_conversation_id}`);
+            }
+          }
         }
+      } catch (msgError) {
+        console.log('[Background] Could not fetch messages:', msgError.message);
       }
     }
 
@@ -747,6 +825,11 @@ async function sendMessageOnLinkedIn(conversationId, content, messageId) {
   console.log('[Background] Sending message via LinkedIn API...');
   console.log('[Background] Conversation:', conversationId);
   console.log('[Background] Content length:', content?.length);
+
+  // Mark this message as sent so it won't be detected as incoming
+  if (content) {
+    markMessageAsSent(content);
+  }
 
   // Check if logged in
   const isLoggedIn = await LinkedInAPI.isLoggedIn();
@@ -1013,3 +1096,267 @@ self.addEventListener('unhandledrejection', (event) => {
 });
 
 console.log('[Background] Service worker initialization complete');
+
+// ==================== MESSAGE POLLING ====================
+
+let messagePollingInterval = null;
+let conversationState = {}; // { conversationId: lastActivityTimestamp }
+let sentMessageHashes = new Set(); // Track messages we sent to avoid duplicates
+let activeConversations = new Set(); // Track conversations we've messaged (to poll for replies)
+
+/**
+ * Start polling for new messages
+ * @param {number} intervalMs - Polling interval in milliseconds (default 30 seconds)
+ */
+async function startMessagePolling(intervalMs = 30000) {
+  if (messagePollingInterval) {
+    console.log('[Background] ⚠️ Message polling already running');
+    return { success: true, message: 'Already running' };
+  }
+
+  console.log('[Background] ✅ Starting message polling every', intervalMs / 1000, 'seconds');
+
+  // Load saved state
+  const savedState = await chrome.storage.local.get(['conversation_state', 'sent_message_hashes', 'active_conversations']);
+  conversationState = savedState.conversation_state || {};
+  sentMessageHashes = new Set(savedState.sent_message_hashes || []);
+  activeConversations = new Set(savedState.active_conversations || []);
+  console.log('[Background] Loaded', activeConversations.size, 'active conversations to poll');
+
+  // Initial check
+  await checkForNewMessages();
+
+  // Set up interval
+  messagePollingInterval = setInterval(async () => {
+    await checkForNewMessages();
+  }, intervalMs);
+
+  // Store polling state
+  await chrome.storage.local.set({ message_polling_active: true });
+
+  return { success: true, message: 'Polling started' };
+}
+
+/**
+ * Stop polling for new messages
+ */
+async function stopMessagePolling() {
+  if (messagePollingInterval) {
+    clearInterval(messagePollingInterval);
+    messagePollingInterval = null;
+    console.log('[Background] Message polling stopped');
+
+    // Save state
+    await chrome.storage.local.set({
+      message_polling_active: false,
+      conversation_state: conversationState,
+      sent_message_hashes: Array.from(sentMessageHashes)
+    });
+  }
+  return { success: true, message: 'Polling stopped' };
+}
+
+/**
+ * Mark a message as sent (to avoid detecting it as incoming)
+ * @param {string} content - Message content
+ */
+function markMessageAsSent(content) {
+  const hash = simpleHash(content);
+  sentMessageHashes.add(hash);
+
+  // Keep set size manageable (last 100 messages)
+  if (sentMessageHashes.size > 100) {
+    const arr = Array.from(sentMessageHashes);
+    sentMessageHashes = new Set(arr.slice(-100));
+  }
+
+  // Save to storage
+  chrome.storage.local.set({ sent_message_hashes: Array.from(sentMessageHashes) });
+}
+
+/**
+ * Simple hash function for message content
+ */
+function simpleHash(str) {
+  let hash = 0;
+  for (let i = 0; i < str.length; i++) {
+    const char = str.charCodeAt(i);
+    hash = ((hash << 5) - hash) + char;
+    hash = hash & hash;
+  }
+  return hash.toString();
+}
+
+/**
+ * Check for new messages across all conversations
+ */
+async function checkForNewMessages() {
+  console.log('[Background] 🔍 Polling: Checking for new messages...');
+
+  try {
+    // Check if logged in
+    const isLoggedIn = await LinkedInAPI.isLoggedIn();
+    if (!isLoggedIn) {
+      console.log('[Background] ❌ Polling failed: Not logged in to LinkedIn');
+      return;
+    }
+    console.log('[Background] ✅ Polling: Logged in');
+
+    // Find a LinkedIn tab
+    const tabs = await chrome.tabs.query({ url: 'https://www.linkedin.com/*' });
+    if (tabs.length === 0) {
+      console.log('[Background] ❌ Polling failed: No LinkedIn tab open');
+      return;
+    }
+    console.log('[Background] ✅ Polling: Found LinkedIn tab:', tabs[0].url);
+
+    const linkedInTab = tabs[0];
+
+    // Wait for content script
+    const isReady = await waitForContentScript(linkedInTab.id, 3);
+    if (!isReady) {
+      console.log('[Background] ❌ Polling failed: Content script not ready');
+      return;
+    }
+    console.log('[Background] ✅ Polling: Content script ready');
+
+    // Request new messages via content script with state
+    console.log('[Background] 📤 Polling: Sending CHECK_NEW_MESSAGES to content script...');
+    console.log('[Background] 📤 Active conversations to check:', Array.from(activeConversations));
+    const response = await chrome.tabs.sendMessage(linkedInTab.id, {
+      type: 'CHECK_NEW_MESSAGES',
+      lastKnownState: conversationState,
+      activeConversations: Array.from(activeConversations) // Include conversations we've messaged
+    });
+
+    console.log('[Background] 📥 Polling: Response from content script:', response?.success ? 'success' : 'failed',
+      '| Messages found:', response?.newMessages?.length || 0);
+
+    if (response?.success) {
+      // Update our conversation state
+      if (response.updatedState) {
+        conversationState = { ...conversationState, ...response.updatedState };
+        await chrome.storage.local.set({ conversation_state: conversationState });
+      }
+
+      if (response.newMessages?.length > 0) {
+        console.log('[Background] 🎉 Found', response.newMessages.length, 'new messages!');
+
+        // Filter out messages we sent
+        const incomingMessages = response.newMessages.filter(msg => {
+          const hash = simpleHash(msg.message.content);
+          if (sentMessageHashes.has(hash)) {
+            console.log('[Background] Filtering out sent message:', msg.message.content.substring(0, 50));
+            return false;
+          }
+          return true;
+        });
+
+        console.log('[Background] After filtering:', incomingMessages.length, 'incoming messages');
+
+        // Send to backend
+        for (const msg of incomingMessages) {
+          try {
+            console.log('[Background] 📤 Sending to backend:', {
+              endpoint: '/inbox/incoming-message',
+              linkedin_conversation_id: msg.conversationId,
+              participant_name: msg.participantName,
+              content: msg.message.content.substring(0, 50)
+            });
+
+            const response = await backgroundApiCall('/inbox/incoming-message', 'POST', {
+              linkedin_conversation_id: msg.conversationId,
+              participant_name: msg.participantName,
+              message: msg.message
+            });
+
+            console.log('[Background] ✅ Backend response:', response);
+          } catch (error) {
+            console.error('[Background] ❌ Failed to send message to backend:', error.message || error);
+          }
+        }
+
+        // Notify webapp via broadcast
+        if (incomingMessages.length > 0) {
+          try {
+            chrome.runtime.sendMessage({
+              type: 'NEW_MESSAGES_RECEIVED',
+              count: incomingMessages.length,
+              messages: incomingMessages
+            }).catch(() => {});
+          } catch (e) {}
+
+          // Also notify external (webapp)
+          try {
+            // Store for webapp to pick up
+            await chrome.storage.local.set({
+              new_messages_available: true,
+              new_messages_count: incomingMessages.length,
+              new_messages_timestamp: Date.now()
+            });
+          } catch (e) {}
+        }
+      } else {
+        console.log('[Background] 📭 Polling: No new messages found');
+      }
+    } else {
+      console.log('[Background] ❌ Polling: Content script returned error:', response?.error);
+    }
+
+  } catch (error) {
+    console.error('[Background] ❌ Polling error:', error);
+  }
+}
+
+// Handle message polling commands from webapp (add to existing onMessageExternal)
+const originalExternalListener = chrome.runtime.onMessageExternal._listeners?.[0];
+
+// Additional external message handlers for polling
+chrome.runtime.onMessageExternal.addListener((message, sender, sendResponse) => {
+  if (message.type === 'START_MESSAGE_POLLING') {
+    const interval = message.interval || 30000;
+    startMessagePolling(interval)
+      .then(result => sendResponse(result))
+      .catch(error => sendResponse({ success: false, error: error.message }));
+    return true;
+  }
+
+  if (message.type === 'STOP_MESSAGE_POLLING') {
+    stopMessagePolling()
+      .then(result => sendResponse(result))
+      .catch(error => sendResponse({ success: false, error: error.message }));
+    return true;
+  }
+
+  if (message.type === 'CHECK_MESSAGES_NOW') {
+    checkForNewMessages()
+      .then(() => sendResponse({ success: true }))
+      .catch(error => sendResponse({ success: false, error: error.message }));
+    return true;
+  }
+
+  if (message.type === 'GET_MESSAGE_POLLING_STATUS') {
+    sendResponse({
+      success: true,
+      isPolling: !!messagePollingInterval,
+      conversationCount: Object.keys(conversationState).length
+    });
+    return false;
+  }
+
+  if (message.type === 'MARK_MESSAGE_SENT') {
+    if (message.content) {
+      markMessageAsSent(message.content);
+    }
+    sendResponse({ success: true });
+    return false;
+  }
+});
+
+// Auto-start polling when extension loads (if was active before)
+chrome.storage.local.get('message_polling_active', (result) => {
+  if (result.message_polling_active) {
+    console.log('[Background] Resuming message polling...');
+    startMessagePolling();
+  }
+});

@@ -8,9 +8,20 @@
 const LinkedInAPI = {
   baseUrl: 'https://www.linkedin.com/voyager/api',
 
+  // GraphQL query IDs (from Waalaxy reverse engineering)
+  graphqlQueries: {
+    // Fetch conversations list
+    conversations: 'voyagerMessagingDashMessengerConversations.58f000d802f3d66a99c09d8ad7f5544b',
+    // Fetch messages from a conversation
+    messages: 'voyagerMessagingDashMessengerMessages.c7d0ab7f4b411aa8a849fbf8b210facc',
+    // Fetch single conversation details
+    conversationDetails: 'voyagerMessagingDashMessengerConversations.031cb3e809ed9a7f6d4b1782e0a18468',
+  },
+
   // Cached tokens
   _csrfToken: null,
   _cookies: null,
+  _profileUrn: null,
 
   /**
    * Get CSRF token from cookies
@@ -54,6 +65,258 @@ const LinkedInAPI = {
       console.error('[LinkedInAPI] Error checking login status:', error);
       return false;
     }
+  },
+
+  // ==================== GRAPHQL API METHODS (Waalaxy-style) ====================
+
+  /**
+   * Fetch conversations using LinkedIn's GraphQL API (more reliable)
+   * @param {number} count - Number of conversations to fetch
+   * @returns {Promise<Array>}
+   */
+  async getConversationsGraphQL(count = 20) {
+    console.log('[LinkedInAPI] Fetching conversations via GraphQL...');
+
+    const csrfToken = await this.getCsrfToken();
+    if (!csrfToken) {
+      throw new Error('Not authenticated with LinkedIn');
+    }
+
+    // Get profile URN for mailbox
+    const profileUrn = await this.getMyProfileUrn();
+    console.log('[LinkedInAPI] Using profile URN:', profileUrn);
+
+    // Build GraphQL URL (Waalaxy format)
+    const queryId = this.graphqlQueries.conversations;
+    const variables = `(categories:List(PRIMARY_INBOX,INBOX),count:${count},mailboxUrn:${encodeURIComponent(profileUrn)})`;
+    const url = `${this.baseUrl}/voyagerMessagingGraphQL/graphql?queryId=${queryId}&variables=${variables}`;
+
+    console.log('[LinkedInAPI] GraphQL URL:', url);
+
+    const response = await fetch(url, {
+      method: 'GET',
+      headers: {
+        'accept': 'application/vnd.linkedin.normalized+json+2.1',
+        'csrf-token': csrfToken,
+        'x-restli-protocol-version': '2.0.0',
+      },
+      credentials: 'include'
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error('[LinkedInAPI] GraphQL error:', response.status, errorText.substring(0, 200));
+      throw new Error(`GraphQL error ${response.status}`);
+    }
+
+    const data = await response.json();
+    console.log('[LinkedInAPI] GraphQL response received');
+
+    return this.parseGraphQLConversations(data, profileUrn);
+  },
+
+  /**
+   * Parse GraphQL conversations response
+   * @param {object} data - GraphQL response
+   * @param {string} myProfileUrn - Current user's profile URN
+   * @returns {Array}
+   */
+  parseGraphQLConversations(data, myProfileUrn) {
+    const conversations = [];
+    const included = data.included || [];
+
+    // Build entity map
+    const entityMap = {};
+    for (const entity of included) {
+      if (entity.entityUrn) {
+        entityMap[entity.entityUrn] = entity;
+      }
+      if (entity['$id']) {
+        entityMap[entity['$id']] = entity;
+      }
+    }
+
+    // Find conversation entities
+    for (const entity of included) {
+      if (entity['$type'] === 'com.linkedin.voyager.dash.messaging.MessengerConversation' ||
+          entity.entityUrn?.includes('msg_conversation')) {
+
+        try {
+          // Extract conversation ID from URN
+          // Format: urn:li:msg_conversation:(urn:li:fsd_profile:xxx,2-conversationId)
+          const convUrn = entity.entityUrn || '';
+          const convIdMatch = convUrn.match(/,([^)]+)\)/);
+          const conversationId = convIdMatch ? convIdMatch[1] : null;
+
+          if (!conversationId) continue;
+
+          // Get participants (filter out self)
+          let participantName = 'Unknown';
+          let participantLinkedinId = null;
+          let participantProfileUrl = null;
+          let participantAvatarUrl = null;
+
+          const participants = entity['*participants'] || entity.participants || [];
+          for (const pRef of participants) {
+            const participant = entityMap[pRef] || entityMap[pRef?.replace('urn:li:msg_messagingParticipant:', '')] ;
+
+            if (participant) {
+              const profileRef = participant['*profile'] || participant.profile;
+              const profile = entityMap[profileRef];
+
+              if (profile && profile.entityUrn !== myProfileUrn) {
+                participantName = `${profile.firstName || ''} ${profile.lastName || ''}`.trim() || 'Unknown';
+                participantLinkedinId = profile.publicIdentifier;
+                participantProfileUrl = participantLinkedinId ? `https://www.linkedin.com/in/${participantLinkedinId}/` : null;
+
+                // Get avatar
+                const picture = profile.profilePicture || profile.picture;
+                if (picture?.displayImageReference?.vectorImage) {
+                  const img = picture.displayImageReference.vectorImage;
+                  if (img.rootUrl && img.artifacts?.length) {
+                    participantAvatarUrl = img.rootUrl + img.artifacts[img.artifacts.length - 1].fileIdentifyingUrlPathSegment;
+                  }
+                }
+                break;
+              }
+            }
+          }
+
+          // Get last activity
+          const lastActivityAt = entity.lastActivityAt;
+          const unreadCount = entity.unreadCount || 0;
+
+          conversations.push({
+            linkedin_conversation_id: conversationId,
+            participant_name: participantName,
+            participant_linkedin_id: participantLinkedinId,
+            participant_profile_url: participantProfileUrl,
+            participant_avatar_url: participantAvatarUrl,
+            last_message_at: lastActivityAt ? new Date(lastActivityAt).toISOString() : null,
+            is_unread: unreadCount > 0,
+            unread_count: unreadCount,
+          });
+        } catch (e) {
+          console.error('[LinkedInAPI] Error parsing conversation:', e);
+        }
+      }
+    }
+
+    console.log(`[LinkedInAPI] Parsed ${conversations.length} conversations from GraphQL`);
+    return conversations;
+  },
+
+  /**
+   * Fetch messages for a conversation using GraphQL
+   * @param {string} conversationId - Conversation ID
+   * @param {number} count - Number of messages
+   * @returns {Promise<Array>}
+   */
+  async getMessagesGraphQL(conversationId, count = 20) {
+    console.log('[LinkedInAPI] Fetching messages via GraphQL for:', conversationId);
+
+    const csrfToken = await this.getCsrfToken();
+    if (!csrfToken) {
+      throw new Error('Not authenticated with LinkedIn');
+    }
+
+    const profileUrn = await this.getMyProfileUrn();
+
+    // Build conversation URN
+    const conversationUrn = `urn:li:msg_conversation:(${profileUrn},${conversationId})`;
+
+    // Build GraphQL URL
+    const queryId = this.graphqlQueries.messages;
+    const variables = `(deliveredAt:${Date.now()},conversationUrn:${encodeURIComponent(conversationUrn)},countBefore:${count},countAfter:0)`;
+    const url = `${this.baseUrl}/voyagerMessagingGraphQL/graphql?queryId=${queryId}&variables=${variables}`;
+
+    console.log('[LinkedInAPI] Messages GraphQL URL:', url);
+
+    const response = await fetch(url, {
+      method: 'GET',
+      headers: {
+        'accept': 'application/vnd.linkedin.normalized+json+2.1',
+        'csrf-token': csrfToken,
+        'x-restli-protocol-version': '2.0.0',
+      },
+      credentials: 'include'
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error('[LinkedInAPI] Messages GraphQL error:', response.status, errorText.substring(0, 200));
+      throw new Error(`Messages GraphQL error ${response.status}`);
+    }
+
+    const data = await response.json();
+    return this.parseGraphQLMessages(data, profileUrn);
+  },
+
+  /**
+   * Parse GraphQL messages response
+   * @param {object} data - GraphQL response
+   * @param {string} myProfileUrn - Current user's profile URN
+   * @returns {Array}
+   */
+  parseGraphQLMessages(data, myProfileUrn) {
+    const messages = [];
+    const included = data.included || [];
+
+    // Build entity map
+    const entityMap = {};
+    for (const entity of included) {
+      if (entity.entityUrn) {
+        entityMap[entity.entityUrn] = entity;
+      }
+    }
+
+    // Find message entities
+    for (const entity of included) {
+      if (entity['$type'] === 'com.linkedin.voyager.dash.messaging.MessengerMessage' ||
+          entity.entityUrn?.includes('msg_message')) {
+
+        try {
+          const messageUrn = entity.entityUrn || '';
+          const content = entity.body?.text || '';
+          const createdAt = entity.deliveredAt || entity.createdAt;
+
+          // Check if from me
+          const senderUrn = entity.sender?.entityUrn || entity['*sender'];
+          const isFromMe = senderUrn?.includes(myProfileUrn?.split(':').pop());
+
+          // Get sender info
+          let senderName = 'Unknown';
+          let senderLinkedinId = null;
+
+          const sender = entityMap[senderUrn] || entity.sender;
+          if (sender) {
+            const profileRef = sender['*profile'] || sender.profile;
+            const profile = entityMap[profileRef] || sender;
+            if (profile) {
+              senderName = `${profile.firstName || ''} ${profile.lastName || ''}`.trim() || 'Unknown';
+              senderLinkedinId = profile.publicIdentifier;
+            }
+          }
+
+          messages.push({
+            linkedin_message_id: messageUrn,
+            content: content,
+            is_from_me: isFromMe,
+            sender_name: senderName,
+            sender_linkedin_id: senderLinkedinId,
+            sent_at: createdAt ? new Date(createdAt).toISOString() : null,
+          });
+        } catch (e) {
+          console.error('[LinkedInAPI] Error parsing message:', e);
+        }
+      }
+    }
+
+    // Sort oldest first
+    messages.sort((a, b) => new Date(a.sent_at) - new Date(b.sent_at));
+
+    console.log(`[LinkedInAPI] Parsed ${messages.length} messages from GraphQL`);
+    return messages;
   },
 
   /**
@@ -146,13 +409,36 @@ const LinkedInAPI = {
   async getConversations(count = 50) {
     console.log('[LinkedInAPI] Fetching conversations...');
 
-    const endpoint = `/messaging/conversations?keyVersion=LEGACY_INBOX&q=syncToken&count=${count}`;
+    const csrfToken = await this.getCsrfToken();
+
+    // Use the new voyagerMessagingDash endpoint
+    const endpoint = `${this.baseUrl}/voyagerMessagingDashMessengerConversations?decorationId=com.linkedin.voyager.dash.deco.messaging.FullConversation-67&q=search&count=${count}`;
 
     try {
-      const response = await this.request(endpoint);
+      const response = await fetch(endpoint, {
+        method: 'GET',
+        headers: {
+          'accept': 'application/vnd.linkedin.normalized+json+2.1',
+          'csrf-token': csrfToken,
+          'x-restli-protocol-version': '2.0.0'
+        },
+        credentials: 'include'
+      });
 
-      // Parse the response - LinkedIn uses a normalized format
-      const conversations = this.parseConversationsResponse(response);
+      if (!response.ok) {
+        // Fallback to old endpoint
+        console.log('[LinkedInAPI] New endpoint failed, trying legacy...');
+        const legacyResponse = await this.request(`/messaging/conversations?keyVersion=LEGACY_INBOX&q=syncToken&count=${count}`);
+        const conversations = this.parseConversationsResponse(legacyResponse);
+        console.log(`[LinkedInAPI] Fetched ${conversations.length} conversations (legacy)`);
+        return conversations;
+      }
+
+      const data = await response.json();
+      console.log('[LinkedInAPI] Raw conversations response:', JSON.stringify(data).substring(0, 500));
+
+      // Parse the new format
+      const conversations = this.parseNewConversationsResponse(data);
       console.log(`[LinkedInAPI] Fetched ${conversations.length} conversations`);
 
       return conversations;
@@ -160,6 +446,122 @@ const LinkedInAPI = {
       console.error('[LinkedInAPI] Failed to fetch conversations:', error);
       throw error;
     }
+  },
+
+  /**
+   * Parse new voyagerMessagingDash conversation response
+   * @param {object} response - Raw API response
+   * @returns {Array}
+   */
+  parseNewConversationsResponse(response) {
+    const conversations = [];
+    const included = response.included || [];
+    const elements = response.data?.elements || response.elements || [];
+
+    console.log('[LinkedInAPI] Parsing - elements:', elements.length, 'included:', included.length);
+
+    // Create lookup maps for included entities
+    const entityMap = {};
+    for (const entity of included) {
+      if (entity.entityUrn) {
+        entityMap[entity.entityUrn] = entity;
+      }
+      // Also map by $id if present
+      if (entity['$id']) {
+        entityMap[entity['$id']] = entity;
+      }
+    }
+
+    // Process each conversation element
+    for (const element of elements) {
+      try {
+        // Get conversation URN - new format uses different field names
+        const conversationUrn = element.entityUrn || element.backendUrn || element['*conversation'];
+        let conversationId = null;
+
+        // Extract ID from various URN formats
+        if (conversationUrn) {
+          // Format: urn:li:msg_conversation:(urn:li:fsd_profile:xxx,2-xxx)
+          const match = conversationUrn.match(/,([^)]+)\)/) || conversationUrn.match(/messagingThread:(.+)/);
+          if (match) {
+            conversationId = match[1];
+          } else {
+            conversationId = this.extractIdFromUrn(conversationUrn);
+          }
+        }
+
+        if (!conversationId) {
+          console.log('[LinkedInAPI] Could not extract conversation ID from:', conversationUrn);
+          continue;
+        }
+
+        // Get participant info from the conversation
+        let participantName = 'Unknown';
+        let participantProfileUrl = null;
+        let participantAvatarUrl = null;
+        let participantLinkedinId = null;
+
+        // New format has participants differently
+        const participantUrns = element['*participants'] || element.participants || [];
+        for (const pUrn of participantUrns) {
+          const participant = entityMap[pUrn];
+          if (participant) {
+            // Get the profile from participant
+            const profileUrn = participant['*profile'] || participant.profile;
+            const profile = entityMap[profileUrn] || participant;
+
+            if (profile) {
+              participantName = `${profile.firstName || ''} ${profile.lastName || ''}`.trim() || profile.name || 'Unknown';
+              participantLinkedinId = profile.publicIdentifier;
+              participantProfileUrl = participantLinkedinId
+                ? `https://www.linkedin.com/in/${participantLinkedinId}/`
+                : null;
+
+              // Get avatar from profile picture
+              const picture = profile.profilePicture || profile.picture;
+              if (picture) {
+                const displayImage = picture.displayImageReference?.vectorImage;
+                if (displayImage?.rootUrl && displayImage?.artifacts?.length) {
+                  const artifact = displayImage.artifacts[displayImage.artifacts.length - 1];
+                  participantAvatarUrl = displayImage.rootUrl + artifact.fileIdentifyingUrlPathSegment;
+                }
+              }
+              break;
+            }
+          }
+        }
+
+        // Get last message info
+        const lastActivityAt = element.lastActivityAt;
+        const unreadCount = element.unreadCount || 0;
+
+        // Get last message preview
+        let lastMessagePreview = null;
+        const lastMessage = element.lastMessage || element['*lastMessage'];
+        if (lastMessage) {
+          const msg = typeof lastMessage === 'string' ? entityMap[lastMessage] : lastMessage;
+          if (msg?.body?.text) {
+            lastMessagePreview = msg.body.text;
+          }
+        }
+
+        conversations.push({
+          linkedin_conversation_id: conversationId,
+          participant_name: participantName,
+          participant_linkedin_id: participantLinkedinId,
+          participant_profile_url: participantProfileUrl,
+          participant_avatar_url: participantAvatarUrl,
+          last_message_preview: lastMessagePreview,
+          last_message_at: lastActivityAt ? new Date(lastActivityAt).toISOString() : null,
+          is_unread: unreadCount > 0,
+          unread_count: unreadCount,
+        });
+      } catch (error) {
+        console.error('[LinkedInAPI] Error parsing conversation:', error);
+      }
+    }
+
+    return conversations;
   },
 
   /**
