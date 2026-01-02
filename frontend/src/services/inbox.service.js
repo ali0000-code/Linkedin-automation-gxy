@@ -113,6 +113,51 @@ const inboxService = {
     });
     return response.data;
   },
+
+  /**
+   * Send a message with optional scheduling
+   * @param {number} conversationId - Conversation ID
+   * @param {string} content - Message content
+   * @param {string} scheduledAt - ISO datetime string for scheduling (optional)
+   * @returns {Promise<object>} Created message
+   */
+  async sendScheduledMessage(conversationId, content, scheduledAt = null) {
+    const response = await api.post(`/inbox/${conversationId}/send`, {
+      content,
+      scheduled_at: scheduledAt,
+    });
+    return response.data;
+  },
+
+  /**
+   * Get scheduled messages
+   * @returns {Promise<object>} Scheduled messages
+   */
+  async getScheduledMessages() {
+    const response = await api.get('/inbox/scheduled');
+    return response.data;
+  },
+
+  /**
+   * Cancel a scheduled message
+   * @param {number} messageId - Message ID
+   * @returns {Promise<object>} Result
+   */
+  async cancelScheduledMessage(messageId) {
+    const response = await api.delete(`/inbox/scheduled/${messageId}`);
+    return response.data;
+  },
+
+  /**
+   * Update a scheduled message
+   * @param {number} messageId - Message ID
+   * @param {object} data - Update data (content, scheduled_at)
+   * @returns {Promise<object>} Updated message
+   */
+  async updateScheduledMessage(messageId, data) {
+    const response = await api.put(`/inbox/scheduled/${messageId}`, data);
+    return response.data;
+  },
 };
 
 export default inboxService;

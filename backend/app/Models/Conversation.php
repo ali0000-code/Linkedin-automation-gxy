@@ -54,10 +54,12 @@ class Conversation extends Model
 
     /**
      * Get all messages in this conversation.
+     * Uses COALESCE to handle null sent_at (scheduled messages) by falling back to created_at
      */
     public function messages(): HasMany
     {
-        return $this->hasMany(LinkedInMessage::class)->orderBy('sent_at', 'asc');
+        return $this->hasMany(LinkedInMessage::class)
+            ->orderByRaw('COALESCE(sent_at, created_at) ASC');
     }
 
     /**

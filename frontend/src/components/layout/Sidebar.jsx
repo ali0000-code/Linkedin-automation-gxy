@@ -5,10 +5,13 @@
  * Supports expandable sub-items for nested navigation.
  */
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
+import { useQueryClient } from '@tanstack/react-query';
 import { useAuthStore } from '../../store/authStore';
 import { useLogout } from '../../hooks/useAuth';
+import { useInboxStats } from '../../hooks/useInbox';
+import { useExtension } from '../../hooks/useExtension';
 import Button from '../common/Button';
 
 // Simple SVG Icons
@@ -69,7 +72,38 @@ const ChevronRightIcon = () => (
 
 const Sidebar = () => {
   const location = useLocation();
+  const queryClient = useQueryClient();
   const [expandedItems, setExpandedItems] = useState(['Campaign']); // Campaign expanded by default
+  const { data: stats } = useInboxStats();
+  const { isConnected, checkNewMessages } = useExtension();
+
+  // Check for new messages from extension every 10 seconds
+  useEffect(() => {
+    if (!isConnected) return;
+
+    const checkForNewMessages = async () => {
+      try {
+        const result = await checkNewMessages();
+        if (result.hasNewMessages && result.count > 0) {
+          // Refresh inbox stats to update the badge
+          queryClient.invalidateQueries({ queryKey: ['inboxStats'] });
+          queryClient.invalidateQueries({ queryKey: ['conversations'] });
+        }
+      } catch (e) {
+        // Ignore errors
+      }
+    };
+
+    // Check immediately
+    checkForNewMessages();
+
+    // Then poll every 10 seconds
+    const pollInterval = setInterval(checkForNewMessages, 10000);
+
+    return () => clearInterval(pollInterval);
+  }, [isConnected, checkNewMessages, queryClient]);
+
+  const unreadCount = stats?.unread_conversations || 0;
 
   const menuItems = [
     { name: 'Home', path: '/dashboard', icon: HomeIcon, comingSoon: true },
@@ -167,11 +201,25 @@ const Sidebar = () => {
                   }}
                 >
                   <div className="flex items-center space-x-3">
-                    <Icon />
+                    <div className="relative">
+                      <Icon />
+                      {/* Unread badge for Inbox */}
+                      {item.name === 'Inbox' && unreadCount > 0 && (
+                        <span className="absolute -top-1 -right-1 bg-red-500 text-white text-xs font-bold rounded-full w-4 h-4 flex items-center justify-center">
+                          {unreadCount > 9 ? '9+' : unreadCount}
+                        </span>
+                      )}
+                    </div>
                     <span className="font-medium">{item.name}</span>
                   </div>
                   {item.comingSoon && (
                     <span className="text-xs bg-gray-700 px-2 py-1 rounded">Soon</span>
+                  )}
+                  {/* Also show count next to Inbox text */}
+                  {item.name === 'Inbox' && unreadCount > 0 && (
+                    <span className="bg-red-500 text-white text-xs font-bold px-2 py-0.5 rounded-full">
+                      {unreadCount}
+                    </span>
                   )}
                 </NavLink>
               )}

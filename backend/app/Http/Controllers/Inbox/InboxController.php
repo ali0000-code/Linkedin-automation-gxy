@@ -225,6 +225,7 @@ class InboxController extends Controller
 
     /**
      * Send a message (queue for extension to send).
+     * Supports scheduling by passing scheduled_at parameter.
      *
      * POST /api/inbox/{id}/send
      */
@@ -232,6 +233,7 @@ class InboxController extends Controller
     {
         $request->validate([
             'content' => 'required|string|max:5000',
+            'scheduled_at' => 'nullable|date|after:now',
         ]);
 
         $user = $request->user();
@@ -246,27 +248,124 @@ class InboxController extends Controller
             ], 404);
         }
 
-        // Create pending message
+        $scheduledAt = $request->input('scheduled_at');
+        $isScheduled = !empty($scheduledAt);
+
+        // Create message (pending or scheduled)
         $message = LinkedInMessage::create([
             'conversation_id' => $conversation->id,
             'user_id' => $user->id,
             'content' => $request->input('content'),
             'is_from_me' => true,
             'sender_name' => $user->name,
-            'sent_at' => now(),
+            'sent_at' => $isScheduled ? null : now(),
             'is_read' => true,
-            'status' => LinkedInMessage::STATUS_PENDING,
+            'status' => $isScheduled ? LinkedInMessage::STATUS_SCHEDULED : LinkedInMessage::STATUS_PENDING,
+            'scheduled_at' => $scheduledAt,
         ]);
 
-        // Update conversation
-        $conversation->update([
-            'last_message_preview' => substr($message->content, 0, 100),
-            'last_message_at' => $message->sent_at,
-        ]);
+        // Update conversation (only if sending now)
+        if (!$isScheduled) {
+            $conversation->update([
+                'last_message_preview' => substr($message->content, 0, 100),
+                'last_message_at' => $message->sent_at,
+            ]);
+        }
 
         return response()->json([
-            'message' => 'Message queued for sending.',
+            'message' => $isScheduled ? 'Message scheduled.' : 'Message queued for sending.',
+            'scheduled' => $isScheduled,
             'data' => $message,
+        ]);
+    }
+
+    /**
+     * Get scheduled messages for the user.
+     *
+     * GET /api/inbox/scheduled
+     */
+    public function scheduledMessages(Request $request): JsonResponse
+    {
+        $user = $request->user();
+
+        $messages = LinkedInMessage::where('user_id', $user->id)
+            ->scheduled()
+            ->with(['conversation:id,linkedin_conversation_id,participant_name,participant_avatar_url'])
+            ->orderBy('scheduled_at', 'asc')
+            ->get();
+
+        return response()->json([
+            'messages' => $messages,
+        ]);
+    }
+
+    /**
+     * Cancel a scheduled message.
+     *
+     * DELETE /api/inbox/scheduled/{id}
+     */
+    public function cancelScheduledMessage(Request $request, int $messageId): JsonResponse
+    {
+        $user = $request->user();
+
+        $message = LinkedInMessage::where('id', $messageId)
+            ->where('user_id', $user->id)
+            ->where('status', LinkedInMessage::STATUS_SCHEDULED)
+            ->first();
+
+        if (!$message) {
+            return response()->json([
+                'message' => 'Scheduled message not found.',
+            ], 404);
+        }
+
+        $message->delete();
+
+        return response()->json([
+            'message' => 'Scheduled message cancelled.',
+        ]);
+    }
+
+    /**
+     * Update a scheduled message (reschedule or edit content).
+     *
+     * PUT /api/inbox/scheduled/{id}
+     */
+    public function updateScheduledMessage(Request $request, int $messageId): JsonResponse
+    {
+        $request->validate([
+            'content' => 'nullable|string|max:5000',
+            'scheduled_at' => 'nullable|date|after:now',
+        ]);
+
+        $user = $request->user();
+
+        $message = LinkedInMessage::where('id', $messageId)
+            ->where('user_id', $user->id)
+            ->where('status', LinkedInMessage::STATUS_SCHEDULED)
+            ->first();
+
+        if (!$message) {
+            return response()->json([
+                'message' => 'Scheduled message not found.',
+            ], 404);
+        }
+
+        $updates = [];
+        if ($request->has('content')) {
+            $updates['content'] = $request->input('content');
+        }
+        if ($request->has('scheduled_at')) {
+            $updates['scheduled_at'] = $request->input('scheduled_at');
+        }
+
+        if (!empty($updates)) {
+            $message->update($updates);
+        }
+
+        return response()->json([
+            'message' => 'Scheduled message updated.',
+            'data' => $message->fresh(),
         ]);
     }
 
@@ -315,10 +414,23 @@ class InboxController extends Controller
         }
 
         if ($request->boolean('success')) {
-            $message->update([
+            $updateData = [
                 'status' => LinkedInMessage::STATUS_SENT,
                 'linkedin_message_id' => $request->input('linkedin_message_id'),
-            ]);
+            ];
+            // Set sent_at if not already set (for scheduled messages)
+            if (!$message->sent_at) {
+                $updateData['sent_at'] = now();
+            }
+            $message->update($updateData);
+
+            // Update conversation's last message info
+            if ($message->conversation) {
+                $message->conversation->update([
+                    'last_message_preview' => substr($message->content, 0, 100),
+                    'last_message_at' => $message->sent_at ?? now(),
+                ]);
+            }
         } else {
             $message->update([
                 'status' => LinkedInMessage::STATUS_FAILED,
@@ -356,6 +468,49 @@ class InboxController extends Controller
         return response()->json([
             'message' => 'Conversation marked as read.',
         ]);
+    }
+
+    /**
+     * Create a conversation (used by extension for auto-creating).
+     *
+     * POST /api/inbox/conversations
+     */
+    public function createConversation(Request $request): JsonResponse
+    {
+        $request->validate([
+            'linkedin_conversation_id' => 'required|string',
+            'participant_name' => 'required|string',
+            'participant_linkedin_url' => 'nullable|string',
+        ]);
+
+        $user = $request->user();
+
+        // Check if conversation already exists
+        $existing = Conversation::where('user_id', $user->id)
+            ->where('linkedin_conversation_id', $request->input('linkedin_conversation_id'))
+            ->first();
+
+        if ($existing) {
+            return response()->json([
+                'message' => 'Conversation already exists.',
+                'data' => $existing,
+            ]);
+        }
+
+        // Create new conversation
+        $conversation = Conversation::create([
+            'user_id' => $user->id,
+            'linkedin_conversation_id' => $request->input('linkedin_conversation_id'),
+            'participant_name' => $request->input('participant_name'),
+            'participant_profile_url' => $request->input('participant_linkedin_url'),
+            'last_message_at' => now(),
+            'last_synced_at' => now(),
+        ]);
+
+        return response()->json([
+            'message' => 'Conversation created.',
+            'data' => $conversation,
+        ], 201);
     }
 
     /**
@@ -459,8 +614,12 @@ class InboxController extends Controller
             ], 404);
         }
 
-        // Check if message already exists
+        // Check if message already exists (by linkedin_message_id or by content+time)
         $linkedinMessageId = $messageData['linkedin_message_id'] ?? null;
+        $content = $messageData['content'];
+        $sentAt = $messageData['sent_at'] ?? null;
+
+        // Method 1: Check by LinkedIn message ID (most reliable)
         if ($linkedinMessageId) {
             $existing = LinkedInMessage::where('conversation_id', $conversation->id)
                 ->where('linkedin_message_id', $linkedinMessageId)
@@ -472,6 +631,21 @@ class InboxController extends Controller
                     'data' => $existing,
                 ]);
             }
+        }
+
+        // Method 2: Check by content + approximate time (fallback for messages without ID)
+        // Check for same content within 5 minutes
+        $recentDuplicate = LinkedInMessage::where('conversation_id', $conversation->id)
+            ->where('content', $content)
+            ->where('is_from_me', $messageData['is_from_me'] ?? false)
+            ->where('created_at', '>=', now()->subMinutes(5))
+            ->first();
+
+        if ($recentDuplicate) {
+            return response()->json([
+                'message' => 'Duplicate message detected.',
+                'data' => $recentDuplicate,
+            ]);
         }
 
         // Create the new message

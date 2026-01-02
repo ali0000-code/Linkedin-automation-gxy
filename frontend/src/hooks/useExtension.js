@@ -203,6 +203,47 @@ export const useExtension = () => {
     });
   }, []);
 
+  /**
+   * Check if there are new messages detected by the extension
+   * @returns {Promise<object>} { hasNewMessages, count, timestamp }
+   */
+  const checkNewMessages = useCallback(async () => {
+    try {
+      const response = await sendMessage('GET_NEW_MESSAGES_STATUS');
+      return {
+        hasNewMessages: response?.hasNewMessages || false,
+        count: response?.count || 0,
+        timestamp: response?.timestamp || 0,
+      };
+    } catch {
+      return { hasNewMessages: false, count: 0, timestamp: 0 };
+    }
+  }, []);
+
+  /**
+   * Trigger a quick inbox sync (non-blocking)
+   * @returns {Promise<object>} Result
+   */
+  const quickSyncInbox = useCallback(async () => {
+    try {
+      return await sendMessage('QUICK_SYNC_INBOX');
+    } catch {
+      return { success: false };
+    }
+  }, []);
+
+  /**
+   * Get sync status
+   * @returns {Promise<object>} { lastSync, isAutoSyncActive, timeSinceSync }
+   */
+  const getSyncStatus = useCallback(async () => {
+    try {
+      return await sendMessage('GET_SYNC_STATUS');
+    } catch {
+      return { success: false, lastSync: 0, isAutoSyncActive: false };
+    }
+  }, []);
+
   return {
     isConnected,
     isChecking,
@@ -215,6 +256,9 @@ export const useExtension = () => {
     openConversation,
     checkLinkedInLogin,
     syncConversationMessages,
+    checkNewMessages,
+    quickSyncInbox,
+    getSyncStatus,
   };
 };
 

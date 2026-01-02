@@ -183,6 +183,10 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/inbox/stats', [InboxController::class, 'stats']);
     Route::post('/inbox/sync', [InboxController::class, 'sync']);
     Route::get('/inbox/pending-messages', [InboxController::class, 'pendingMessages']);
+    Route::get('/inbox/scheduled', [InboxController::class, 'scheduledMessages']);
+    Route::delete('/inbox/scheduled/{id}', [InboxController::class, 'cancelScheduledMessage']);
+    Route::put('/inbox/scheduled/{id}', [InboxController::class, 'updateScheduledMessage']);
+    Route::post('/inbox/conversations', [InboxController::class, 'createConversation']);
     Route::get('/inbox/{id}', [InboxController::class, 'show']);
     Route::post('/inbox/{id}/sync-messages', [InboxController::class, 'syncMessages']);
     Route::post('/inbox/{id}/send', [InboxController::class, 'sendMessage']);

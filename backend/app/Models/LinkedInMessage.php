@@ -20,6 +20,9 @@ class LinkedInMessage extends Model
 
     protected $table = 'linkedin_messages';
 
+    // Status for scheduled messages
+    const STATUS_SCHEDULED = 'scheduled';
+
     protected $fillable = [
         'conversation_id',
         'user_id',
@@ -32,10 +35,12 @@ class LinkedInMessage extends Model
         'is_read',
         'status',
         'error_message',
+        'scheduled_at',
     ];
 
     protected $casts = [
         'sent_at' => 'datetime',
+        'scheduled_at' => 'datetime',
         'is_from_me' => 'boolean',
         'is_read' => 'boolean',
     ];
@@ -86,5 +91,40 @@ class LinkedInMessage extends Model
     public function scopeUnread($query)
     {
         return $query->where('is_read', false);
+    }
+
+    /**
+     * Scope for scheduled messages.
+     */
+    public function scopeScheduled($query)
+    {
+        return $query->where('status', self::STATUS_SCHEDULED)
+            ->whereNotNull('scheduled_at');
+    }
+
+    /**
+     * Scope for scheduled messages that are due to be sent.
+     */
+    public function scopeDueToSend($query)
+    {
+        return $query->where('status', self::STATUS_SCHEDULED)
+            ->whereNotNull('scheduled_at')
+            ->where('scheduled_at', '<=', now());
+    }
+
+    /**
+     * Check if message is scheduled for future.
+     */
+    public function isScheduled(): bool
+    {
+        return $this->status === self::STATUS_SCHEDULED && $this->scheduled_at !== null;
+    }
+
+    /**
+     * Check if scheduled message is due to be sent.
+     */
+    public function isDue(): bool
+    {
+        return $this->isScheduled() && $this->scheduled_at <= now();
     }
 }

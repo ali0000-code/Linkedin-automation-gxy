@@ -47,6 +47,201 @@ function getCsrfToken() {
   return null;
 }
 
+// Profile URN cache (1 hour expiry)
+let cachedProfileUrn = null;
+let profileUrnCacheTime = 0;
+const PROFILE_URN_CACHE_DURATION = 60 * 60 * 1000; // 1 hour
+
+/**
+ * Get my LinkedIn profile URN (cached)
+ * @returns {Promise<string|null>} The profile URN or null
+ */
+async function getMyProfileUrn() {
+  // Return cached if valid
+  if (cachedProfileUrn && (Date.now() - profileUrnCacheTime) < PROFILE_URN_CACHE_DURATION) {
+    console.log('[Content Script] Using cached profile URN:', cachedProfileUrn);
+    return cachedProfileUrn;
+  }
+
+  const csrfToken = getCsrfToken();
+  if (!csrfToken) return null;
+
+  try {
+    // Try the identity endpoint first (returns fsd_profile URN)
+    const response = await fetch('https://www.linkedin.com/voyager/api/voyagerIdentityDashProfiles?q=memberIdentity&memberIdentity=me', {
+      headers: {
+        'accept': 'application/vnd.linkedin.normalized+json+2.1',
+        'csrf-token': csrfToken,
+        'x-restli-protocol-version': '2.0.0'
+      },
+      credentials: 'include'
+    });
+
+    if (response.ok) {
+      const data = await response.json();
+      // Find the fsd_profile URN in included array
+      for (const entity of (data.included || [])) {
+        if (entity.entityUrn?.startsWith('urn:li:fsd_profile:')) {
+          cachedProfileUrn = entity.entityUrn;
+          profileUrnCacheTime = Date.now();
+          console.log('[Content Script] Cached profile URN:', cachedProfileUrn);
+          return cachedProfileUrn;
+        }
+      }
+    }
+
+    // Fallback: try /me endpoint
+    const meResponse = await fetch('https://www.linkedin.com/voyager/api/me', {
+      headers: {
+        'accept': 'application/vnd.linkedin.normalized+json+2.1',
+        'csrf-token': csrfToken,
+        'x-restli-protocol-version': '2.0.0'
+      },
+      credentials: 'include'
+    });
+
+    if (meResponse.ok) {
+      const meData = await meResponse.json();
+      // Check various locations for profile URN
+      cachedProfileUrn = meData.miniProfile?.entityUrn ||
+                         meData.entityUrn ||
+                         meData.included?.find(e => e.entityUrn?.includes('fsd_profile'))?.entityUrn;
+      if (cachedProfileUrn) {
+        profileUrnCacheTime = Date.now();
+        console.log('[Content Script] Cached profile URN (from /me):', cachedProfileUrn);
+        return cachedProfileUrn;
+      }
+    }
+  } catch (e) {
+    console.log('[Content Script] Failed to get profile URN:', e.message);
+  }
+
+  return null;
+}
+
+// ==================== RATE LIMITER ====================
+
+/**
+ * Rate limiter for LinkedIn API calls
+ * Uses a fixed-size circular buffer to limit memory usage
+ * Limits to 60 requests per minute (1 per second average)
+ */
+const rateLimiter = {
+  // Fixed-size circular buffer for request timestamps
+  requests: new Array(60).fill(0), // Pre-allocated array
+  head: 0, // Next position to write
+  count: 0, // Number of valid entries
+  maxRequests: 60,
+  windowMs: 60 * 1000, // 1 minute
+
+  // Clean expired entries and return count of valid ones
+  _cleanup() {
+    const now = Date.now();
+    let validCount = 0;
+    for (let i = 0; i < this.count; i++) {
+      const idx = (this.head - this.count + i + this.maxRequests) % this.maxRequests;
+      if (now - this.requests[idx] < this.windowMs) {
+        validCount++;
+      }
+    }
+    // If entries expired, update count (circular buffer handles the rest)
+    if (validCount < this.count) {
+      this.count = validCount;
+    }
+    return validCount;
+  },
+
+  canMakeRequest() {
+    return this._cleanup() < this.maxRequests;
+  },
+
+  recordRequest() {
+    // Add to circular buffer (overwrites oldest if full)
+    this.requests[this.head] = Date.now();
+    this.head = (this.head + 1) % this.maxRequests;
+    if (this.count < this.maxRequests) {
+      this.count++;
+    }
+  },
+
+  async waitForSlot() {
+    while (!this.canMakeRequest()) {
+      // Find oldest valid request
+      const now = Date.now();
+      let oldestTime = now;
+      for (let i = 0; i < this.count; i++) {
+        const idx = (this.head - this.count + i + this.maxRequests) % this.maxRequests;
+        if (this.requests[idx] < oldestTime && now - this.requests[idx] < this.windowMs) {
+          oldestTime = this.requests[idx];
+        }
+      }
+      const waitTime = Math.max(100, oldestTime + this.windowMs - now + 100);
+      console.log(`[Rate Limiter] Waiting ${waitTime}ms for rate limit...`);
+      await new Promise(resolve => setTimeout(resolve, Math.min(waitTime, 5000)));
+    }
+  },
+
+  getStatus() {
+    const validCount = this._cleanup();
+    const now = Date.now();
+    let oldestTime = now;
+    for (let i = 0; i < this.count; i++) {
+      const idx = (this.head - this.count + i + this.maxRequests) % this.maxRequests;
+      if (this.requests[idx] < oldestTime && now - this.requests[idx] < this.windowMs) {
+        oldestTime = this.requests[idx];
+      }
+    }
+    return {
+      used: validCount,
+      remaining: this.maxRequests - validCount,
+      resetsIn: validCount > 0 ? Math.max(0, oldestTime + this.windowMs - now) : 0
+    };
+  }
+};
+
+/**
+ * Rate-limited fetch wrapper for LinkedIn API
+ * Handles rate limiting and common errors (429, 401, 403)
+ */
+async function linkedInFetch(url, options = {}) {
+  // Wait for rate limit slot
+  await rateLimiter.waitForSlot();
+
+  // Record this request
+  rateLimiter.recordRequest();
+
+  const response = await fetch(url, {
+    ...options,
+    credentials: 'include'
+  });
+
+  // Handle rate limiting (429)
+  if (response.status === 429) {
+    const retryAfter = response.headers.get('Retry-After') || 60;
+    console.log(`[LinkedIn API] Rate limited! Waiting ${retryAfter}s...`);
+    await new Promise(resolve => setTimeout(resolve, retryAfter * 1000));
+    // Retry once
+    rateLimiter.recordRequest();
+    return fetch(url, { ...options, credentials: 'include' });
+  }
+
+  // Handle auth errors (401, 403)
+  if (response.status === 401 || response.status === 403) {
+    console.error('[LinkedIn API] Authentication error:', response.status);
+    // Notify background script about auth failure
+    try {
+      chrome.runtime.sendMessage({
+        type: 'LINKEDIN_AUTH_ERROR',
+        status: response.status,
+        message: response.status === 401 ? 'Session expired' : 'Access forbidden'
+      });
+    } catch (e) {}
+    throw new Error(`LinkedIn auth error: ${response.status}. Please refresh LinkedIn and try again.`);
+  }
+
+  return response;
+}
+
 /**
  * Listen for messages from popup and background
  */
@@ -324,30 +519,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         throw new Error('CSRF token not found. Please refresh the page.');
       }
 
-      // Get profile URN first (needed for some endpoints)
-      let profileUrn = null;
-      try {
-        const profileResponse = await fetch('https://www.linkedin.com/voyager/api/voyagerIdentityDashProfiles?q=memberIdentity&memberIdentity=me', {
-          method: 'GET',
-          headers: {
-            'accept': 'application/vnd.linkedin.normalized+json+2.1',
-            'csrf-token': csrfToken,
-            'x-restli-protocol-version': '2.0.0'
-          },
-          credentials: 'include'
-        });
-        if (profileResponse.ok) {
-          const profileData = await profileResponse.json();
-          for (const entity of (profileData.included || [])) {
-            if (entity.entityUrn?.startsWith('urn:li:fsd_profile:')) {
-              profileUrn = entity.entityUrn;
-              console.log('[Content Script] Got profile URN:', profileUrn);
-              break;
-            }
-          }
-        }
-      } catch (e) {
-        console.log('[Content Script] Could not get profile URN:', e.message);
+      // Get profile URN first (cached - needed for GraphQL endpoints)
+      const profileUrn = await getMyProfileUrn();
+      if (profileUrn) {
+        console.log('[Content Script] Using cached profile URN:', profileUrn);
       }
 
       // Try GraphQL endpoints (Waalaxy-style - most reliable)
@@ -374,7 +549,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         try {
           console.log(`[Content Script] Trying ${attempt.name}:`, attempt.url);
 
-          const response = await fetch(attempt.url, {
+          const response = await linkedInFetch(attempt.url, {
             method: 'GET',
             headers: {
               'accept': attempt.accept,
@@ -393,8 +568,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
                 displayWidth: 2940,
                 displayHeight: 1912
               })
-            },
-            credentials: 'include'
+            }
           });
 
           console.log(`[Content Script] ${attempt.name} status:`, response.status);
@@ -458,15 +632,14 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         try {
           console.log(`[Content Script] Trying ${name} endpoint:`, url);
 
-          const response = await fetch(url, {
+          const response = await linkedInFetch(url, {
             method: 'GET',
             headers: {
               'accept': 'application/vnd.linkedin.normalized+json+2.1',
               'csrf-token': csrfToken,
               'x-restli-protocol-version': '2.0.0',
               'x-li-lang': 'en_US'
-            },
-            credentials: 'include'
+            }
           });
 
           console.log(`[Content Script] ${name} response status:`, response.status);
@@ -999,32 +1172,11 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         throw new Error('CSRF token not found. Please refresh the page.');
       }
 
-      // Get current user's profile URN
-      const getProfileUrn = async () => {
-        const response = await fetch('https://www.linkedin.com/voyager/api/voyagerIdentityDashProfiles?q=memberIdentity&memberIdentity=me', {
-          method: 'GET',
-          headers: {
-            'accept': 'application/vnd.linkedin.normalized+json+2.1',
-            'csrf-token': csrfToken,
-            'x-restli-protocol-version': '2.0.0'
-          },
-          credentials: 'include'
-        });
-
-        if (response.ok) {
-          const data = await response.json();
-          if (data?.included) {
-            for (const entity of data.included) {
-              if (entity.entityUrn?.startsWith('urn:li:fsd_profile:')) {
-                return entity.entityUrn;
-              }
-            }
-          }
-        }
+      // Get current user's profile URN (cached)
+      const profileUrn = await getMyProfileUrn();
+      if (!profileUrn) {
         throw new Error('Could not get profile URN');
-      };
-
-      const profileUrn = await getProfileUrn();
+      }
       console.log('[Content Script] Profile URN:', profileUrn);
 
       // Generate UUID
@@ -1078,7 +1230,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             await new Promise(resolve => setTimeout(resolve, 1000 * attempt)); // Exponential backoff
           }
 
-          const response = await fetch('https://www.linkedin.com/voyager/api/voyagerMessagingDashMessengerMessages?action=createMessage', {
+          const response = await linkedInFetch('https://www.linkedin.com/voyager/api/voyagerMessagingDashMessengerMessages?action=createMessage', {
             method: 'POST',
             headers: {
               'accept': 'application/json',
@@ -1100,8 +1252,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
               }),
               'x-restli-protocol-version': '2.0.0'
             },
-            body: JSON.stringify(body),
-            credentials: 'include'
+            body: JSON.stringify(body)
           });
 
           const responseText = await response.text();
@@ -1247,15 +1398,14 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           console.log('[Content Script] Fetching messages for:', conversationId);
 
           // Use direct conversation ID format (works!)
-          let response = await fetch(
+          let response = await linkedInFetch(
             `https://www.linkedin.com/voyager/api/messaging/conversations/${conversationId}/events?count=20`,
             {
               headers: {
                 'accept': 'application/vnd.linkedin.normalized+json+2.1',
                 'csrf-token': csrfToken,
                 'x-restli-protocol-version': '2.0.0'
-              },
-              credentials: 'include'
+              }
             }
           );
 
@@ -1408,6 +1558,73 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         console.log('[Content Script] Could not load stored conversations');
       }
 
+      // Method 4: Fetch recent conversations with unread messages from LinkedIn API
+      // This catches NEW conversations that haven't been synced yet
+      try {
+        const unreadResponse = await linkedInFetch(
+          'https://www.linkedin.com/voyager/api/messaging/conversations?keyVersion=LEGACY_INBOX&q=syncToken&count=10',
+          {
+            headers: {
+              'accept': 'application/vnd.linkedin.normalized+json+2.1',
+              'csrf-token': csrfToken,
+              'x-restli-protocol-version': '2.0.0'
+            }
+          }
+        );
+
+        if (unreadResponse.ok) {
+          const unreadData = await unreadResponse.json();
+          const included = unreadData.included || [];
+
+          // Find conversation entities
+          const convEntities = included.filter(e =>
+            e['$type'] === 'com.linkedin.voyager.messaging.Conversation' ||
+            e.entityUrn?.includes('msg_conversation')
+          );
+
+          let addedCount = 0;
+          for (const conv of convEntities) {
+            // Only add if has unread messages
+            if (conv.unreadCount > 0 || conv.lastActivityAt > (Date.now() - 60000)) {
+              // Extract conversation ID
+              const entityUrn = conv.entityUrn || '';
+              const match = entityUrn.match(/,([^)]+)\)/) || entityUrn.match(/conversation:([^,]+)/);
+              const convId = match ? match[1] : null;
+
+              if (convId && !conversations.find(c => c.conversationId === convId)) {
+                // Try to get participant name
+                let participantName = 'Unknown';
+                const participantRefs = conv['*participants'] || conv.participants || [];
+                for (const ref of participantRefs) {
+                  const participant = included.find(e => e.entityUrn === ref);
+                  if (participant) {
+                    const profileRef = participant['*miniProfile'] || participant['*profile'];
+                    const profile = included.find(e => e.entityUrn === profileRef);
+                    if (profile) {
+                      participantName = `${profile.firstName || ''} ${profile.lastName || ''}`.trim();
+                      break;
+                    }
+                  }
+                }
+
+                conversations.push({
+                  conversationId: convId,
+                  participantName: participantName,
+                  hasUnread: conv.unreadCount > 0
+                });
+                addedCount++;
+              }
+            }
+          }
+
+          if (addedCount > 0) {
+            console.log('[Content Script] Added', addedCount, 'conversations with recent activity from LinkedIn API');
+          }
+        }
+      } catch (e) {
+        console.log('[Content Script] Could not fetch unread conversations:', e.message);
+      }
+
       console.log('[Content Script] 📋 Total conversations to check:', conversations.length);
       if (conversations.length > 0) {
         console.log('[Content Script] Conversations:', conversations.map(c => c.conversationId).join(', '));
@@ -1419,24 +1636,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         return { newMessages: [], updatedState: lastKnownState };
       }
 
-      // Get my profile URN for filtering out my own messages
-      let myProfileUrn = null;
-      try {
-        const profileResponse = await fetch('https://www.linkedin.com/voyager/api/me', {
-          headers: {
-            'accept': 'application/vnd.linkedin.normalized+json+2.1',
-            'csrf-token': csrfToken,
-            'x-restli-protocol-version': '2.0.0'
-          },
-          credentials: 'include'
-        });
-        if (profileResponse.ok) {
-          const data = await profileResponse.json();
-          myProfileUrn = data.miniProfile?.entityUrn || data.entityUrn;
-          console.log('[Content Script] Got my profile URN:', myProfileUrn);
-        }
-      } catch (e) {
-        console.log('[Content Script] Could not get my profile URN');
+      // Get my profile URN for filtering out my own messages (cached)
+      const myProfileUrn = await getMyProfileUrn();
+      if (myProfileUrn) {
+        console.log('[Content Script] Using profile URN:', myProfileUrn);
       }
 
       // Process each conversation to find new messages
@@ -1460,13 +1663,12 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
               const conversationUrn = `urn:li:msg_conversation:(${myProfileUrn},${conversationId})`;
               const graphqlUrl = `https://www.linkedin.com/voyager/api/voyagerMessagingGraphQL/graphql?queryId=voyagerMessagingDashMessengerMessages.c7d0ab7f4b411aa8a849fbf8b210facc&variables=(deliveredAt:${Date.now()},conversationUrn:${encodeURIComponent(conversationUrn)},countBefore:20,countAfter:0)`;
 
-              const graphqlResponse = await fetch(graphqlUrl, {
+              const graphqlResponse = await linkedInFetch(graphqlUrl, {
                 headers: {
                   'accept': 'application/vnd.linkedin.normalized+json+2.1',
                   'csrf-token': csrfToken,
                   'x-restli-protocol-version': '2.0.0'
-                },
-                credentials: 'include'
+                }
               });
 
               if (graphqlResponse.ok) {
@@ -1481,15 +1683,14 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
           // Method 2: REST fallback
           if (!msgData) {
-            const restResponse = await fetch(
+            const restResponse = await linkedInFetch(
               `https://www.linkedin.com/voyager/api/messaging/conversations/${conversationId}/events?count=10`,
               {
                 headers: {
                   'accept': 'application/vnd.linkedin.normalized+json+2.1',
                   'csrf-token': csrfToken,
                   'x-restli-protocol-version': '2.0.0'
-                },
-                credentials: 'include'
+                }
               }
             );
 

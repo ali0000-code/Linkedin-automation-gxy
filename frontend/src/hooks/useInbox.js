@@ -128,3 +128,62 @@ export const usePendingMessages = () => {
     staleTime: 30000,
   });
 };
+
+/**
+ * Hook to get scheduled messages
+ */
+export const useScheduledMessages = () => {
+  return useQuery({
+    queryKey: ['scheduledMessages'],
+    queryFn: () => inboxService.getScheduledMessages(),
+    staleTime: 30000,
+  });
+};
+
+/**
+ * Hook to send a scheduled message
+ */
+export const useSendScheduledMessage = () => {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({ conversationId, content, scheduledAt }) =>
+      inboxService.sendScheduledMessage(conversationId, content, scheduledAt),
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries(['conversation', variables.conversationId]);
+      queryClient.invalidateQueries(['conversations']);
+      queryClient.invalidateQueries(['scheduledMessages']);
+    },
+  });
+};
+
+/**
+ * Hook to cancel a scheduled message
+ */
+export const useCancelScheduledMessage = () => {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (messageId) => inboxService.cancelScheduledMessage(messageId),
+    onSuccess: () => {
+      queryClient.invalidateQueries(['scheduledMessages']);
+      queryClient.invalidateQueries(['conversations']);
+    },
+  });
+};
+
+/**
+ * Hook to update a scheduled message
+ */
+export const useUpdateScheduledMessage = () => {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({ messageId, data }) =>
+      inboxService.updateScheduledMessage(messageId, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries(['scheduledMessages']);
+      queryClient.invalidateQueries(['conversations']);
+    },
+  });
+};

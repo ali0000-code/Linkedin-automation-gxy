@@ -16,6 +16,9 @@ import {
   useSendMessage,
   useMarkAsRead,
   useDeleteConversation,
+  useScheduledMessages,
+  useCancelScheduledMessage,
+  useSendScheduledMessage,
 } from '../hooks/useInbox';
 import { useExtension } from '../hooks/useExtension';
 
@@ -47,6 +50,24 @@ const TrashIcon = () => (
 const BackIcon = () => (
   <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+  </svg>
+);
+
+const ClockIcon = () => (
+  <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+  </svg>
+);
+
+const CalendarIcon = () => (
+  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+  </svg>
+);
+
+const XIcon = () => (
+  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
   </svg>
 );
 
@@ -143,27 +164,62 @@ const ConversationItem = ({ conversation, isSelected, onClick }) => {
   );
 };
 
+// Format scheduled time
+const formatScheduledTime = (dateString) => {
+  if (!dateString) return '';
+  const date = new Date(dateString);
+  return date.toLocaleString([], {
+    month: 'short',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+};
+
 // Message Bubble
-const MessageBubble = ({ message }) => {
+const MessageBubble = ({ message, onCancelScheduled }) => {
   const isFromMe = message.is_from_me;
+  const isScheduled = message.status === 'scheduled';
 
   return (
     <div className={`flex ${isFromMe ? 'justify-end' : 'justify-start'} mb-3`}>
       <div
         className={`max-w-[70%] rounded-2xl px-4 py-2 ${
-          isFromMe
+          isScheduled
+            ? 'bg-amber-100 text-amber-900 border-2 border-amber-300 border-dashed rounded-br-sm'
+            : isFromMe
             ? 'bg-linkedin text-white rounded-br-sm'
             : 'bg-gray-100 text-gray-800 rounded-bl-sm'
         }`}
       >
         <p className="text-sm whitespace-pre-wrap break-words">{message.content}</p>
-        <div className={`flex items-center justify-end mt-1 space-x-1 ${isFromMe ? 'text-white/70' : 'text-gray-400'}`}>
-          <span className="text-xs">{formatMessageTime(message.sent_at)}</span>
-          {message.status === 'pending' && (
-            <span className="text-xs">(Sending...)</span>
-          )}
-          {message.status === 'failed' && (
-            <span className="text-xs text-red-300">(Failed)</span>
+        <div className={`flex items-center justify-end mt-1 space-x-1 ${
+          isScheduled ? 'text-amber-700' : isFromMe ? 'text-white/70' : 'text-gray-400'
+        }`}>
+          {isScheduled ? (
+            <>
+              <ClockIcon />
+              <span className="text-xs">Scheduled: {formatScheduledTime(message.scheduled_at)}</span>
+              {onCancelScheduled && (
+                <button
+                  onClick={() => onCancelScheduled(message.id)}
+                  className="ml-2 text-red-600 hover:text-red-800"
+                  title="Cancel scheduled message"
+                >
+                  <XIcon />
+                </button>
+              )}
+            </>
+          ) : (
+            <>
+              <span className="text-xs">{formatMessageTime(message.sent_at)}</span>
+              {message.status === 'pending' && (
+                <span className="text-xs">(Sending...)</span>
+              )}
+              {message.status === 'failed' && (
+                <span className="text-xs text-red-300">(Failed)</span>
+              )}
+            </>
           )}
         </div>
       </div>
@@ -172,8 +228,11 @@ const MessageBubble = ({ message }) => {
 };
 
 // Chat View Component
-const ChatView = ({ conversation, messages, onSendMessage, onBack, isSending, onSyncMessages, isSyncingMessages }) => {
+const ChatView = ({ conversation, messages, onSendMessage, onScheduleMessage, onCancelScheduled, onBack, isSending, onSyncMessages, isSyncingMessages }) => {
   const [newMessage, setNewMessage] = useState('');
+  const [showScheduler, setShowScheduler] = useState(false);
+  const [scheduledDate, setScheduledDate] = useState('');
+  const [scheduledTime, setScheduledTime] = useState('');
   const messagesEndRef = useRef(null);
 
   // Scroll to bottom when messages change
@@ -187,6 +246,28 @@ const ChatView = ({ conversation, messages, onSendMessage, onBack, isSending, on
       onSendMessage(newMessage.trim());
       setNewMessage('');
     }
+  };
+
+  const handleSchedule = () => {
+    if (!newMessage.trim() || !scheduledDate || !scheduledTime) return;
+
+    const scheduledAt = new Date(`${scheduledDate}T${scheduledTime}`);
+    if (scheduledAt <= new Date()) {
+      alert('Please select a future date and time');
+      return;
+    }
+
+    onScheduleMessage(newMessage.trim(), scheduledAt.toISOString());
+    setNewMessage('');
+    setScheduledDate('');
+    setScheduledTime('');
+    setShowScheduler(false);
+  };
+
+  // Get minimum date (today) for date picker
+  const getMinDate = () => {
+    const today = new Date();
+    return today.toISOString().split('T')[0];
   };
 
   return (
@@ -253,40 +334,99 @@ const ChatView = ({ conversation, messages, onSendMessage, onBack, isSending, on
           </div>
         ) : (
           messages?.map((message) => (
-            <MessageBubble key={message.id} message={message} />
+            <MessageBubble
+              key={message.id}
+              message={message}
+              onCancelScheduled={message.status === 'scheduled' ? onCancelScheduled : null}
+            />
           ))
         )}
         <div ref={messagesEndRef} />
       </div>
 
       {/* Message Input */}
-      <form onSubmit={handleSend} className="p-4 border-t border-gray-200 bg-white">
-        <div className="flex items-end space-x-2">
-          <textarea
-            value={newMessage}
-            onChange={(e) => setNewMessage(e.target.value)}
-            placeholder="Type a message..."
-            rows={1}
-            className="flex-1 border border-gray-300 rounded-lg px-4 py-2 focus:ring-2 focus:ring-linkedin focus:border-transparent resize-none"
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' && !e.shiftKey) {
-                e.preventDefault();
-                handleSend(e);
-              }
-            }}
-          />
-          <Button
-            type="submit"
-            disabled={!newMessage.trim() || isSending}
-            className="flex-shrink-0"
-          >
-            {isSending ? <Spinner size="sm" /> : <SendIcon />}
-          </Button>
-        </div>
-        <p className="text-xs text-gray-400 mt-2">
-          Press Enter to send, Shift+Enter for new line
-        </p>
-      </form>
+      <div className="p-4 border-t border-gray-200 bg-white">
+        {/* Schedule Picker */}
+        {showScheduler && (
+          <div className="mb-3 p-3 bg-amber-50 border border-amber-200 rounded-lg">
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-sm font-medium text-amber-800 flex items-center">
+                <ClockIcon />
+                <span className="ml-1">Schedule Message</span>
+              </span>
+              <button
+                onClick={() => setShowScheduler(false)}
+                className="text-amber-600 hover:text-amber-800"
+              >
+                <XIcon />
+              </button>
+            </div>
+            <div className="flex items-center space-x-2">
+              <input
+                type="date"
+                value={scheduledDate}
+                onChange={(e) => setScheduledDate(e.target.value)}
+                min={getMinDate()}
+                className="flex-1 border border-amber-300 rounded px-2 py-1 text-sm focus:ring-2 focus:ring-amber-500 focus:border-transparent"
+              />
+              <input
+                type="time"
+                value={scheduledTime}
+                onChange={(e) => setScheduledTime(e.target.value)}
+                className="flex-1 border border-amber-300 rounded px-2 py-1 text-sm focus:ring-2 focus:ring-amber-500 focus:border-transparent"
+              />
+              <Button
+                type="button"
+                onClick={handleSchedule}
+                disabled={!newMessage.trim() || !scheduledDate || !scheduledTime || isSending}
+                className="bg-amber-500 hover:bg-amber-600"
+              >
+                Schedule
+              </Button>
+            </div>
+          </div>
+        )}
+
+        <form onSubmit={handleSend}>
+          <div className="flex items-end space-x-2">
+            <textarea
+              value={newMessage}
+              onChange={(e) => setNewMessage(e.target.value)}
+              placeholder="Type a message..."
+              rows={1}
+              className="flex-1 border border-gray-300 rounded-lg px-4 py-2 focus:ring-2 focus:ring-linkedin focus:border-transparent resize-none"
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && !e.shiftKey) {
+                  e.preventDefault();
+                  handleSend(e);
+                }
+              }}
+            />
+            <button
+              type="button"
+              onClick={() => setShowScheduler(!showScheduler)}
+              className={`p-2 rounded-lg border ${
+                showScheduler
+                  ? 'bg-amber-100 border-amber-300 text-amber-600'
+                  : 'border-gray-300 text-gray-500 hover:bg-gray-100'
+              }`}
+              title="Schedule message"
+            >
+              <ClockIcon />
+            </button>
+            <Button
+              type="submit"
+              disabled={!newMessage.trim() || isSending}
+              className="flex-shrink-0"
+            >
+              {isSending ? <Spinner size="sm" /> : <SendIcon />}
+            </Button>
+          </div>
+          <p className="text-xs text-gray-400 mt-2">
+            Press Enter to send, Shift+Enter for new line. Click <ClockIcon /> to schedule.
+          </p>
+        </form>
+      </div>
     </div>
   );
 };
@@ -328,11 +468,27 @@ const Inbox = () => {
   const sendMessageMutation = useSendMessage();
   const markAsReadMutation = useMarkAsRead();
   const deleteConversationMutation = useDeleteConversation();
-  const { triggerSync, sendLinkedInMessage, syncConversationMessages, checkLinkedInLogin } = useExtension();
+  const cancelScheduledMutation = useCancelScheduledMessage();
+  const sendScheduledMutation = useSendScheduledMessage();
+  const { triggerSync, sendLinkedInMessage, syncConversationMessages, checkLinkedInLogin, quickSyncInbox, isConnected } = useExtension();
 
   const conversations = conversationsData?.data || [];
   const selectedConversation = conversationData?.conversation;
   const messages = selectedConversation?.messages || [];
+
+  // Auto-sync inbox when page loads (if extension is connected)
+  useEffect(() => {
+    if (!isConnected) return;
+
+    // Trigger quick sync in background
+    quickSyncInbox().then((result) => {
+      if (result?.success) {
+        // Refresh conversation list after sync
+        queryClient.invalidateQueries({ queryKey: ['conversations'] });
+        queryClient.invalidateQueries({ queryKey: ['inboxStats'] });
+      }
+    });
+  }, [isConnected, quickSyncInbox, queryClient]);
 
   // Poll for new messages every 5 seconds when a conversation is selected
   useEffect(() => {
@@ -374,21 +530,30 @@ const Inbox = () => {
 
   // Handle send message
   const handleSendMessage = async (content) => {
-    if (!selectedConversationId || !selectedConversation) return;
+    // IMPORTANT: Capture conversation IDs at the START to prevent race conditions
+    // If user switches conversations during async operations, we still send to the original conversation
+    const targetConversationId = selectedConversationId;
+    const targetLinkedInConversationId = selectedConversation?.linkedin_conversation_id;
+
+    if (!targetConversationId || !targetLinkedInConversationId) {
+      console.error('Cannot send message: missing conversation ID');
+      return;
+    }
+
+    console.log('Sending message to conversation:', targetConversationId, 'LinkedIn ID:', targetLinkedInConversationId);
 
     try {
       // 1. Create pending message in backend
       const result = await sendMessageMutation.mutateAsync({
-        conversationId: selectedConversationId,
+        conversationId: targetConversationId,
         content,
       });
 
       // 2. Send via LinkedIn API (much more reliable than DOM approach)
-      const linkedinConversationId = selectedConversation.linkedin_conversation_id;
-      if (linkedinConversationId && result?.data?.id) {
+      if (result?.data?.id) {
         try {
           const sendResult = await sendLinkedInMessage(
-            linkedinConversationId,
+            targetLinkedInConversationId,
             content,
             result.data.id
           );
@@ -396,7 +561,7 @@ const Inbox = () => {
 
           // Refresh to get updated message status
           setTimeout(() => {
-            queryClient.invalidateQueries({ queryKey: ['conversation', selectedConversationId] });
+            queryClient.invalidateQueries({ queryKey: ['conversation', targetConversationId] });
           }, 500);
         } catch (extError) {
           console.error('Failed to send via LinkedIn API:', extError);
@@ -429,24 +594,66 @@ const Inbox = () => {
 
   // Handle sync messages for current conversation
   const handleSyncMessages = async () => {
-    if (!selectedConversation?.linkedin_conversation_id) return;
+    // Capture IDs at the START to prevent race conditions
+    const targetConversationId = selectedConversationId;
+    const targetLinkedInConversationId = selectedConversation?.linkedin_conversation_id;
+
+    if (!targetLinkedInConversationId || !targetConversationId) return;
 
     setIsSyncingMessages(true);
     try {
       // Sync messages via LinkedIn API
       const result = await syncConversationMessages(
-        selectedConversation.linkedin_conversation_id,
-        selectedConversationId
+        targetLinkedInConversationId,
+        targetConversationId
       );
       console.log('Messages synced:', result);
 
       // Refresh conversation
-      queryClient.invalidateQueries({ queryKey: ['conversation', selectedConversationId] });
+      queryClient.invalidateQueries({ queryKey: ['conversation', targetConversationId] });
     } catch (error) {
       console.error('Failed to sync messages:', error);
       alert('Failed to sync messages. Make sure you are logged into LinkedIn.');
     } finally {
       setIsSyncingMessages(false);
+    }
+  };
+
+  // Handle schedule message
+  const handleScheduleMessage = async (content, scheduledAt) => {
+    // Capture conversation ID at the START to prevent race conditions
+    const targetConversationId = selectedConversationId;
+
+    if (!targetConversationId) {
+      console.error('Cannot schedule message: no conversation selected');
+      return;
+    }
+
+    console.log('Scheduling message for conversation:', targetConversationId);
+
+    try {
+      await sendScheduledMutation.mutateAsync({
+        conversationId: targetConversationId,
+        content,
+        scheduledAt,
+      });
+      queryClient.invalidateQueries({ queryKey: ['conversation', targetConversationId] });
+    } catch (error) {
+      console.error('Failed to schedule message:', error);
+      alert('Failed to schedule message. Please try again.');
+    }
+  };
+
+  // Handle cancel scheduled message
+  const handleCancelScheduledMessage = async (messageId) => {
+    if (!window.confirm('Are you sure you want to cancel this scheduled message?')) return;
+
+    try {
+      await cancelScheduledMutation.mutateAsync(messageId);
+      queryClient.invalidateQueries({ queryKey: ['conversation', selectedConversationId] });
+    } catch (error) {
+      console.error('Failed to cancel scheduled message:', error);
+      alert('Failed to cancel scheduled message. Please try again.');
     }
   };
 
@@ -523,8 +730,10 @@ const Inbox = () => {
                   conversation={selectedConversation}
                   messages={messages}
                   onSendMessage={handleSendMessage}
+                  onScheduleMessage={handleScheduleMessage}
+                  onCancelScheduled={handleCancelScheduledMessage}
                   onBack={() => setSelectedConversationId(null)}
-                  isSending={sendMessageMutation.isPending}
+                  isSending={sendMessageMutation.isPending || sendScheduledMutation.isPending}
                   onSyncMessages={handleSyncMessages}
                   isSyncingMessages={isSyncingMessages}
                 />
