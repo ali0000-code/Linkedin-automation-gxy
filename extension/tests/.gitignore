@@ -1,0 +1,15 @@
+# Authentication state (contains cookies)
+auth.json
+
+# Test artifacts
+test-results/
+playwright-report/
+selector-report.json
+selector-report.html
+
+# Node modules
+node_modules/
+
+# Videos and screenshots
+*.webm
+*.png

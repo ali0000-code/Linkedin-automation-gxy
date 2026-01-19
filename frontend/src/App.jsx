@@ -20,6 +20,7 @@ import MessageTemplates from './pages/MessageTemplates';
 import Settings from './pages/Settings';
 import Mail from './pages/Mail';
 import Inbox from './pages/Inbox';
+import Dashboard from './pages/Dashboard';
 import ComingSoon from './pages/ComingSoon';
 import NotFound from './pages/NotFound';
 
@@ -50,13 +51,13 @@ const ProtectedRoute = ({ children }) => {
 
 /**
  * Public Route Component
- * Redirects to prospects if user is already authenticated
+ * Redirects to dashboard if user is already authenticated
  */
 const PublicRoute = ({ children }) => {
   const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
 
   if (isAuthenticated) {
-    return <Navigate to="/prospects" replace />;
+    return <Navigate to="/dashboard" replace />;
   }
 
   return children;
@@ -145,7 +146,7 @@ function App() {
             path="/dashboard"
             element={
               <ProtectedRoute>
-                <ComingSoon title="Home Dashboard" description="Your personalized dashboard is coming soon!" />
+                <Dashboard />
               </ProtectedRoute>
             }
           />
@@ -222,8 +223,8 @@ function App() {
             }
           />
 
-          {/* Default Route - redirect to prospects */}
-          <Route path="/" element={<Navigate to="/prospects" replace />} />
+          {/* Default Route - redirect to dashboard */}
+          <Route path="/" element={<Navigate to="/dashboard" replace />} />
 
           {/* 404 Not Found */}
           <Route path="*" element={<NotFound />} />

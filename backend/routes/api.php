@@ -4,6 +4,7 @@ use App\Http\Controllers\Auth\LinkedInOAuthController;
 use App\Http\Controllers\Auth\LogoutController;
 use App\Http\Controllers\Campaign\CampaignActionController;
 use App\Http\Controllers\Campaign\CampaignController;
+use App\Http\Controllers\Dashboard\DashboardController;
 use App\Http\Controllers\Extension\ExtensionController;
 use App\Http\Controllers\Inbox\InboxController;
 use App\Http\Controllers\Mail\SentEmailController;
@@ -72,6 +73,13 @@ Route::middleware('auth:sanctum')->group(function () {
 
     // Verify LinkedIn account (for extension)
     Route::post('/auth/linkedin/verify', [LinkedInOAuthController::class, 'verifyLinkedInAccount']);
+
+    /*
+    |--------------------------------------------------------------------------
+    | Dashboard Routes
+    |--------------------------------------------------------------------------
+    */
+    Route::get('/dashboard', [DashboardController::class, 'index']);
 
     /*
     |--------------------------------------------------------------------------

@@ -129,5 +129,21 @@ export const prospectService = {
       tag_ids: tagIds
     });
     return response.data;
+  },
+
+  /**
+   * Get prospects with email addresses
+   * @returns {Promise<array>} Array of prospects with email
+   */
+  async getProspectsWithEmail() {
+    const response = await api.get('/prospects', {
+      params: {
+        per_page: 100,
+        has_email: true
+      }
+    });
+    // Filter to only return prospects with email
+    const prospects = response.data?.data || response.data?.prospects || [];
+    return prospects.filter(p => p.email && p.email.trim() !== '');
   }
 };

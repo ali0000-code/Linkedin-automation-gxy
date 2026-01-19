@@ -25,6 +25,7 @@ class ProspectResource extends JsonResource
             'id' => $this->id,
             'linkedin_id' => $this->linkedin_id,
             'full_name' => $this->full_name,
+            'email' => $this->email,
             'headline' => $this->headline,
             'profile_url' => $this->profile_url,
             'location' => $this->location,

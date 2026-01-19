@@ -16,6 +16,32 @@ console.log('[Background] LinkedIn Automation service worker loaded');
 const PollingManager = {
   intervals: {},
   isRunning: false,
+  _campaignCheckPromise: null,
+
+  /**
+   * Check if a campaign is currently running (checks multiple sources)
+   * @returns {Promise<boolean>}
+   */
+  async isCampaignRunning() {
+    // Check in-memory status first (fast)
+    if (queueStatus.isRunning) {
+      return true;
+    }
+
+    // Also check persisted status (survives service worker restart)
+    try {
+      const stored = await chrome.storage.local.get('queue_status');
+      if (stored.queue_status?.isRunning) {
+        // Sync in-memory status
+        queueStatus.isRunning = true;
+        return true;
+      }
+    } catch (e) {
+      // Ignore storage errors
+    }
+
+    return false;
+  },
 
   /**
    * Register and start a polling task
@@ -32,7 +58,14 @@ const PollingManager = {
 
     // Create wrapper that checks if polling is paused
     const wrappedTask = async () => {
-      if (queueStatus.isRunning) {
+      // Use cached promise if already checking (prevents race)
+      if (!this._campaignCheckPromise) {
+        this._campaignCheckPromise = this.isCampaignRunning();
+      }
+      const campaignRunning = await this._campaignCheckPromise;
+      this._campaignCheckPromise = null;
+
+      if (campaignRunning) {
         console.log(`[PollingManager] Skipping ${name} - campaign running`);
         return;
       }
@@ -95,6 +128,10 @@ const PollingManager = {
 
 // ==================== LINKEDIN TAB MANAGEMENT ====================
 
+// Mutex to prevent concurrent tab creation
+let tabCreationInProgress = false;
+let tabCreationPromise = null;
+
 /**
  * Find an existing LinkedIn tab
  * @returns {Promise<chrome.tabs.Tab|null>} LinkedIn tab or null
@@ -106,38 +143,66 @@ async function findLinkedInTab() {
 
 /**
  * Ensure a LinkedIn tab exists, create one if not
+ * Uses mutex to prevent multiple tabs being created simultaneously
  * @param {boolean} pinTab - Whether to pin the tab
  * @returns {Promise<chrome.tabs.Tab>} LinkedIn tab
  */
 async function ensureLinkedInTab(pinTab = true) {
+  // If tab creation is already in progress, wait for it
+  if (tabCreationInProgress && tabCreationPromise) {
+    console.log('[Background] Tab creation already in progress, waiting...');
+    return tabCreationPromise;
+  }
+
   let tab = await findLinkedInTab();
 
   if (!tab) {
-    console.log('[Background] No LinkedIn tab found, creating one...');
-    tab = await chrome.tabs.create({
-      url: 'https://www.linkedin.com/messaging/',
-      active: false, // Don't focus the tab
-      pinned: pinTab
-    });
+    // Set mutex
+    tabCreationInProgress = true;
 
-    // Wait for tab to load
-    await new Promise((resolve) => {
-      const listener = (tabId, changeInfo) => {
-        if (tabId === tab.id && changeInfo.status === 'complete') {
+    tabCreationPromise = (async () => {
+      // Double-check after acquiring mutex
+      tab = await findLinkedInTab();
+      if (tab) {
+        tabCreationInProgress = false;
+        tabCreationPromise = null;
+        return tab;
+      }
+
+      console.log('[Background] No LinkedIn tab found, creating one...');
+      tab = await chrome.tabs.create({
+        url: 'https://www.linkedin.com/messaging/',
+        active: false, // Don't focus the tab
+        pinned: pinTab
+      });
+
+      // Wait for tab to load
+      await new Promise((resolve) => {
+        const listener = (tabId, changeInfo) => {
+          if (tabId === tab.id && changeInfo.status === 'complete') {
+            chrome.tabs.onUpdated.removeListener(listener);
+            resolve();
+          }
+        };
+        chrome.tabs.onUpdated.addListener(listener);
+
+        // Timeout after 15 seconds
+        setTimeout(() => {
           chrome.tabs.onUpdated.removeListener(listener);
           resolve();
-        }
-      };
-      chrome.tabs.onUpdated.addListener(listener);
+        }, 15000);
+      });
 
-      // Timeout after 15 seconds
-      setTimeout(() => {
-        chrome.tabs.onUpdated.removeListener(listener);
-        resolve();
-      }, 15000);
-    });
+      console.log('[Background] LinkedIn tab created and loaded');
 
-    console.log('[Background] LinkedIn tab created and loaded');
+      // Release mutex
+      tabCreationInProgress = false;
+      tabCreationPromise = null;
+
+      return tab;
+    })();
+
+    return tabCreationPromise;
   }
 
   return tab;
@@ -156,6 +221,8 @@ async function hasLinkedInTab() {
 let queueStatus = {
   isRunning: false,
   lastUpdate: null,
+  status: 'idle',
+  message: '',
   stats: { completed: 0, failed: 0 }
 };
 
@@ -425,10 +492,10 @@ chrome.runtime.onMessageExternal.addListener((message, sender, sendResponse) => 
           // Save to storage for persistence
           chrome.storage.local.set({ active_conversations: activeConversations.toArray() });
 
-          // Auto-start polling when user sends a message
-          if (!messagePollingInterval) {
+          // Ensure unified polling is running (uses PollingManager, won't duplicate)
+          if (!PollingManager.intervals['newMessages']) {
             console.log('[Background] Auto-starting message polling after send');
-            startMessagePolling(15000); // Poll every 15 seconds for active conversations
+            startAllPolling();
           }
         }
         sendResponse(result);
@@ -493,6 +560,88 @@ chrome.runtime.onMessageExternal.addListener((message, sender, sendResponse) => 
       });
 
     return true; // Async response
+  }
+
+  // Handle START_MESSAGE_POLLING from webapp
+  if (message.type === 'START_MESSAGE_POLLING') {
+    const interval = message.interval || 30000;
+    startMessagePolling(interval)
+      .then(result => sendResponse(result))
+      .catch(error => sendResponse({ success: false, error: error.message }));
+    return true;
+  }
+
+  // Handle STOP_MESSAGE_POLLING from webapp
+  if (message.type === 'STOP_MESSAGE_POLLING') {
+    stopMessagePolling()
+      .then(result => sendResponse(result))
+      .catch(error => sendResponse({ success: false, error: error.message }));
+    return true;
+  }
+
+  // Handle CHECK_MESSAGES_NOW from webapp
+  if (message.type === 'CHECK_MESSAGES_NOW') {
+    checkForNewMessages()
+      .then(() => sendResponse({ success: true }))
+      .catch(error => sendResponse({ success: false, error: error.message }));
+    return true;
+  }
+
+  // Handle GET_MESSAGE_POLLING_STATUS from webapp
+  if (message.type === 'GET_MESSAGE_POLLING_STATUS') {
+    sendResponse({
+      success: true,
+      isPolling: !!messagePollingInterval,
+      conversationCount: Object.keys(conversationState).length
+    });
+    return false;
+  }
+
+  // Check for new messages status (webapp can poll this)
+  if (message.type === 'GET_NEW_MESSAGES_STATUS') {
+    chrome.storage.local.get(['new_messages_available', 'new_messages_count', 'new_messages_timestamp'], (result) => {
+      sendResponse({
+        success: true,
+        hasNewMessages: result.new_messages_available || false,
+        count: result.new_messages_count || 0,
+        timestamp: result.new_messages_timestamp || 0
+      });
+      // Clear the flag after reading
+      if (result.new_messages_available) {
+        chrome.storage.local.set({ new_messages_available: false, new_messages_count: 0 });
+      }
+    });
+    return true; // Async response
+  }
+
+  // Quick sync - triggered when user opens inbox page
+  if (message.type === 'QUICK_SYNC_INBOX') {
+    console.log('[Background] Quick sync requested');
+    performAutoSync()
+      .then(() => sendResponse({ success: true }))
+      .catch(error => sendResponse({ success: false, error: error.message }));
+    return true; // Async response
+  }
+
+  // Get sync status
+  if (message.type === 'GET_SYNC_STATUS') {
+    chrome.storage.local.get(['last_auto_sync', 'auto_sync_active'], (result) => {
+      sendResponse({
+        success: true,
+        lastSync: result.last_auto_sync || 0,
+        isAutoSyncActive: result.auto_sync_active || false,
+        timeSinceSync: result.last_auto_sync ? Date.now() - result.last_auto_sync : null
+      });
+    });
+    return true;
+  }
+
+  // Handle MARK_MESSAGE_SENT from webapp
+  if (message.type === 'MARK_MESSAGE_SENT') {
+    // Pass message ID (if available) and content for deduplication
+    markMessageAsSent(message.messageId || null, message.content);
+    sendResponse({ success: true });
+    return false;
   }
 
   return false;
@@ -623,6 +772,13 @@ chrome.action.onClicked.addListener((tab) => {
 async function startQueueOnLinkedIn() {
   console.log('[Background] Starting queue on LinkedIn...');
 
+  // IMMEDIATELY mark as running to block polling (before any async operations)
+  queueStatus.isRunning = true;
+  queueStatus.status = 'starting';
+  queueStatus.lastUpdate = new Date().toISOString();
+  await chrome.storage.local.set({ queue_status: queueStatus });
+  console.log('[Background] Queue status set to running (blocking polling)');
+
   try {
     // Find existing LinkedIn tab
     const tabs = await chrome.tabs.query({ url: 'https://www.linkedin.com/*' });
@@ -673,6 +829,11 @@ async function startQueueOnLinkedIn() {
 
   } catch (error) {
     console.error('[Background] Failed to start queue:', error);
+    // Reset status on failure so polling can resume
+    queueStatus.isRunning = false;
+    queueStatus.status = 'failed';
+    queueStatus.message = error.message;
+    await chrome.storage.local.set({ queue_status: queueStatus });
     throw error;
   }
 }
@@ -881,31 +1042,9 @@ async function syncInboxOnLinkedIn(limit = 50, includeMessages = false) {
       console.log(`[Background] Stored ${syncedConversations.length} conversations for polling`);
     }
 
-    // Always fetch recent messages for each conversation (to catch missed messages)
-    if (conversations.length > 0) {
-      console.log('[Background] Fetching recent messages for each conversation...');
-
-      // Ask content script to fetch messages for all conversations
-      try {
-        const messagesResponse = await chrome.tabs.sendMessage(linkedInTab.id, {
-          type: 'FETCH_MESSAGES_FOR_CONVERSATIONS',
-          conversationIds: conversations.map(c => c.linkedin_conversation_id).slice(0, 10) // Limit to first 10
-        });
-
-        if (messagesResponse?.success && messagesResponse.conversationMessages) {
-          // Attach messages to conversations
-          for (const conv of conversations) {
-            const msgs = messagesResponse.conversationMessages[conv.linkedin_conversation_id];
-            if (msgs && msgs.length > 0) {
-              conv.messages = msgs;
-              console.log(`[Background] Got ${msgs.length} messages for ${conv.linkedin_conversation_id}`);
-            }
-          }
-        }
-      } catch (msgError) {
-        console.log('[Background] Could not fetch messages:', msgError.message);
-      }
-    }
+    // NOTE: Messages are NOT fetched during initial sync.
+    // Messages are fetched on-demand when user opens a conversation.
+    // This avoids is_from_me detection issues and speeds up initial sync.
 
     // Send to backend API
     try {
@@ -1391,29 +1530,27 @@ class LRUMapWithTTL {
 let conversationState = new LRUMapWithTTL(200, 24 * 60 * 60 * 1000);
 let sentMessageIds = new LRUCache(200); // Track message IDs we sent (max 200)
 let sentMessageHashes = new LRUCache(100); // Track content hashes (max 100)
+let processedIncomingIds = new LRUCache(500); // Track incoming message IDs already processed (max 500)
 let activeConversations = new LRUCache(50); // Track conversations we've messaged (max 50)
 let messagePollingInterval = null; // Legacy interval handle (managed by PollingManager now)
 
 /**
  * Start polling for new messages
+ * Now uses PollingManager to prevent duplicate intervals
  * @param {number} intervalMs - Polling interval in milliseconds (default 30 seconds)
  */
 async function startMessagePolling(intervalMs = 30000) {
-  if (messagePollingInterval) {
-    console.log('[Background] ⚠️ Message polling already running');
+  // Check if already running via PollingManager
+  if (PollingManager.intervals['newMessages']) {
+    console.log('[Background] ⚠️ Message polling already running via PollingManager');
     return { success: true, message: 'Already running' };
   }
 
   console.log('[Background] ✅ Starting message polling every', intervalMs / 1000, 'seconds');
   console.log('[Background] Current state:', activeConversations.size, 'active conversations,', sentMessageIds.size, 'sent message IDs');
 
-  // Initial check
-  await checkForNewMessages();
-
-  // Set up interval
-  messagePollingInterval = setInterval(async () => {
-    await checkForNewMessages();
-  }, intervalMs);
+  // Use PollingManager instead of separate interval
+  PollingManager.start('newMessages', checkForNewMessages, intervalMs);
 
   // Store polling state
   await chrome.storage.local.set({ message_polling_active: true });
@@ -1425,20 +1562,20 @@ async function startMessagePolling(intervalMs = 30000) {
  * Stop polling for new messages
  */
 async function stopMessagePolling() {
-  if (messagePollingInterval) {
-    clearInterval(messagePollingInterval);
-    messagePollingInterval = null;
-    console.log('[Background] Message polling stopped');
+  // Stop via PollingManager
+  PollingManager.stop('newMessages');
+  console.log('[Background] Message polling stopped');
 
-    // Save state
-    await chrome.storage.local.set({
-      message_polling_active: false,
-      conversation_state: conversationState.toObject(),
-      sent_message_ids: sentMessageIds.toArray(),
-      sent_message_hashes: sentMessageHashes.toArray(),
-      active_conversations: activeConversations.toArray()
-    });
-  }
+  // Save state
+  await chrome.storage.local.set({
+    message_polling_active: false,
+    conversation_state: conversationState.toObject(),
+    sent_message_ids: sentMessageIds.toArray(),
+    sent_message_hashes: sentMessageHashes.toArray(),
+    processed_incoming_ids: processedIncomingIds.toArray(),
+    active_conversations: activeConversations.toArray()
+  });
+
   return { success: true, message: 'Polling stopped' };
 }
 
@@ -1485,256 +1622,40 @@ function simpleHash(str) {
 }
 
 /**
- * Check for new messages across all conversations
+ * Check for new messages (manual trigger from webapp)
+ * Wrapper that uses the internal implementation with proper setup
  */
 async function checkForNewMessages() {
-  console.log('[Background] 🔍 Polling: Checking for new messages...');
-  // Note: Campaign check is handled by PollingManager wrapper
+  console.log('[Background] Manual check for new messages triggered');
 
-  try {
-    // Check if logged in
-    const isLoggedIn = await LinkedInAPI.isLoggedIn();
-    if (!isLoggedIn) {
-      console.log('[Background] ❌ Polling failed: Not logged in to LinkedIn');
-      return;
-    }
-    console.log('[Background] ✅ Polling: Logged in');
-
-    // Find a LinkedIn tab
-    const tabs = await chrome.tabs.query({ url: 'https://www.linkedin.com/*' });
-    if (tabs.length === 0) {
-      console.log('[Background] ❌ Polling failed: No LinkedIn tab open');
-      return;
-    }
-    console.log('[Background] ✅ Polling: Found LinkedIn tab:', tabs[0].url);
-
-    const linkedInTab = tabs[0];
-
-    // Wait for content script
-    const isReady = await waitForContentScript(linkedInTab.id, 3);
-    if (!isReady) {
-      console.log('[Background] ❌ Polling failed: Content script not ready');
-      return;
-    }
-    console.log('[Background] ✅ Polling: Content script ready');
-
-    // Request new messages via content script with state
-    console.log('[Background] 📤 Polling: Sending CHECK_NEW_MESSAGES to content script...');
-    console.log('[Background] 📤 Active conversations to check:', activeConversations.toArray());
-    const response = await chrome.tabs.sendMessage(linkedInTab.id, {
-      type: 'CHECK_NEW_MESSAGES',
-      lastKnownState: conversationState,
-      activeConversations: activeConversations.toArray() // Include conversations we've messaged
-    });
-
-    console.log('[Background] 📥 Polling: Response from content script:', response?.success ? 'success' : 'failed',
-      '| Messages found:', response?.newMessages?.length || 0);
-
-    if (response?.success) {
-      // Update our conversation state (using LRU map with TTL)
-      if (response.updatedState) {
-        for (const [key, value] of Object.entries(response.updatedState)) {
-          conversationState.set(key, value);
-        }
-        await chrome.storage.local.set({ conversation_state: conversationState.toObject() });
-      }
-
-      if (response.newMessages?.length > 0) {
-        console.log('[Background] 🎉 Found', response.newMessages.length, 'new messages!');
-
-        // Filter out messages we sent (check message ID first, then content hash)
-        const incomingMessages = response.newMessages.filter(msg => {
-          const messageId = msg.linkedin_message_id || msg.message?.linkedin_message_id;
-
-          // Primary check: message ID (most reliable)
-          if (messageId && sentMessageIds.has(messageId)) {
-            console.log('[Background] Filtering out sent message (by ID):', messageId);
-            return false;
-          }
-
-          // Fallback check: content hash
-          const hash = simpleHash(msg.message.content);
-          if (sentMessageHashes.has(hash)) {
-            console.log('[Background] Filtering out sent message (by hash):', msg.message.content.substring(0, 50));
-            return false;
-          }
-
-          return true;
-        });
-
-        console.log('[Background] After filtering:', incomingMessages.length, 'incoming messages');
-
-        // Send to backend
-        for (const msg of incomingMessages) {
-          try {
-            console.log('[Background] 📤 Sending to backend:', {
-              endpoint: '/inbox/incoming-message',
-              linkedin_conversation_id: msg.conversationId,
-              participant_name: msg.participantName,
-              content: msg.message.content.substring(0, 50)
-            });
-
-            let response;
-            try {
-              response = await backgroundApiCall('/inbox/incoming-message', 'POST', {
-                linkedin_conversation_id: msg.conversationId,
-                participant_name: msg.participantName,
-                message: msg.message
-              });
-            } catch (error) {
-              // If 404, conversation doesn't exist - create it first
-              if (error.message?.includes('404') || error.status === 404) {
-                console.log('[Background] 📝 Conversation not found, creating it first...');
-
-                try {
-                  // Create the conversation
-                  await backgroundApiCall('/inbox/conversations', 'POST', {
-                    linkedin_conversation_id: msg.conversationId,
-                    participant_name: msg.participantName || 'Unknown',
-                    participant_linkedin_url: null
-                  });
-                  console.log('[Background] ✅ Conversation created');
-
-                  // Retry sending the message
-                  response = await backgroundApiCall('/inbox/incoming-message', 'POST', {
-                    linkedin_conversation_id: msg.conversationId,
-                    participant_name: msg.participantName,
-                    message: msg.message
-                  });
-                } catch (createError) {
-                  console.error('[Background] ❌ Failed to create conversation:', createError.message);
-                  throw createError;
-                }
-              } else {
-                throw error;
-              }
-            }
-
-            console.log('[Background] ✅ Backend response:', response);
-          } catch (error) {
-            console.error('[Background] ❌ Failed to send message to backend:', error.message || error);
-          }
-        }
-
-        // Notify webapp via broadcast
-        if (incomingMessages.length > 0) {
-          try {
-            chrome.runtime.sendMessage({
-              type: 'NEW_MESSAGES_RECEIVED',
-              count: incomingMessages.length,
-              messages: incomingMessages
-            }).catch(() => {});
-          } catch (e) {}
-
-          // Also notify external (webapp)
-          try {
-            // Store for webapp to pick up
-            await chrome.storage.local.set({
-              new_messages_available: true,
-              new_messages_count: incomingMessages.length,
-              new_messages_timestamp: Date.now()
-            });
-          } catch (e) {}
-        }
-      } else {
-        console.log('[Background] 📭 Polling: No new messages found');
-      }
-    } else {
-      console.log('[Background] ❌ Polling: Content script returned error:', response?.error);
-    }
-
-  } catch (error) {
-    console.error('[Background] ❌ Polling error:', error);
+  const linkedInTab = await findLinkedInTab();
+  if (!linkedInTab) {
+    throw new Error('No LinkedIn tab found. Please open LinkedIn.');
   }
+
+  const isReady = await waitForContentScript(linkedInTab.id, 5);
+  if (!isReady) {
+    throw new Error('Content script not ready. Please refresh the LinkedIn page.');
+  }
+
+  const isLoggedIn = await LinkedInAPI.isLoggedIn();
+  if (!isLoggedIn) {
+    throw new Error('Not logged in to LinkedIn.');
+  }
+
+  await checkForNewMessagesInternal(linkedInTab);
 }
 
-// Handle message polling commands from webapp (add to existing onMessageExternal)
-const originalExternalListener = chrome.runtime.onMessageExternal._listeners?.[0];
-
-// Additional external message handlers for polling
-chrome.runtime.onMessageExternal.addListener((message, sender, sendResponse) => {
-  if (message.type === 'START_MESSAGE_POLLING') {
-    const interval = message.interval || 30000;
-    startMessagePolling(interval)
-      .then(result => sendResponse(result))
-      .catch(error => sendResponse({ success: false, error: error.message }));
-    return true;
-  }
-
-  if (message.type === 'STOP_MESSAGE_POLLING') {
-    stopMessagePolling()
-      .then(result => sendResponse(result))
-      .catch(error => sendResponse({ success: false, error: error.message }));
-    return true;
-  }
-
-  if (message.type === 'CHECK_MESSAGES_NOW') {
-    checkForNewMessages()
-      .then(() => sendResponse({ success: true }))
-      .catch(error => sendResponse({ success: false, error: error.message }));
-    return true;
-  }
-
-  if (message.type === 'GET_MESSAGE_POLLING_STATUS') {
-    sendResponse({
-      success: true,
-      isPolling: !!messagePollingInterval,
-      conversationCount: Object.keys(conversationState).length
-    });
-    return false;
-  }
-
-  // Check for new messages status (webapp can poll this)
-  if (message.type === 'GET_NEW_MESSAGES_STATUS') {
-    chrome.storage.local.get(['new_messages_available', 'new_messages_count', 'new_messages_timestamp'], (result) => {
-      sendResponse({
-        success: true,
-        hasNewMessages: result.new_messages_available || false,
-        count: result.new_messages_count || 0,
-        timestamp: result.new_messages_timestamp || 0
-      });
-      // Clear the flag after reading
-      if (result.new_messages_available) {
-        chrome.storage.local.set({ new_messages_available: false, new_messages_count: 0 });
-      }
-    });
-    return true; // Async response
-  }
-
-  // Quick sync - triggered when user opens inbox page
-  if (message.type === 'QUICK_SYNC_INBOX') {
-    console.log('[Background] Quick sync requested');
-    performAutoSync()
-      .then(() => sendResponse({ success: true }))
-      .catch(error => sendResponse({ success: false, error: error.message }));
-    return true; // Async response
-  }
-
-  // Get sync status
-  if (message.type === 'GET_SYNC_STATUS') {
-    chrome.storage.local.get(['last_auto_sync', 'auto_sync_active'], (result) => {
-      sendResponse({
-        success: true,
-        lastSync: result.last_auto_sync || 0,
-        isAutoSyncActive: result.auto_sync_active || false,
-        timeSinceSync: result.last_auto_sync ? Date.now() - result.last_auto_sync : null
-      });
-    });
-    return true;
-  }
-
-  if (message.type === 'MARK_MESSAGE_SENT') {
-    // Pass message ID (if available) and content for deduplication
-    markMessageAsSent(message.messageId || null, message.content);
-    sendResponse({ success: true });
-    return false;
-  }
-});
+// Note: Message polling commands are handled in the main onMessageExternal listener above
 
 // ==================== STATE PERSISTENCE ====================
 
+// Debounce timer for state saves
+let saveStateDebounceTimer = null;
+const SAVE_DEBOUNCE_MS = 2000; // Wait 2 seconds after last change before saving
+
 /**
- * Save all state to storage (called periodically and before shutdown)
+ * Save all state to storage (called periodically and after critical changes)
  */
 async function saveState() {
   try {
@@ -1742,13 +1663,40 @@ async function saveState() {
       conversation_state: conversationState.toObject(),
       sent_message_ids: sentMessageIds.toArray(),
       sent_message_hashes: sentMessageHashes.toArray(),
+      processed_incoming_ids: processedIncomingIds.toArray(),
       active_conversations: activeConversations.toArray(),
+      queue_status: queueStatus,
       last_state_save: Date.now()
     });
     console.log('[Background] State saved');
   } catch (e) {
     console.error('[Background] Failed to save state:', e);
   }
+}
+
+/**
+ * Debounced save - call this after state changes to avoid excessive writes
+ * Will save 2 seconds after the last call
+ */
+function saveStateDebounced() {
+  if (saveStateDebounceTimer) {
+    clearTimeout(saveStateDebounceTimer);
+  }
+  saveStateDebounceTimer = setTimeout(() => {
+    saveState();
+    saveStateDebounceTimer = null;
+  }, SAVE_DEBOUNCE_MS);
+}
+
+/**
+ * Immediate save - for critical state changes
+ */
+function saveStateImmediate() {
+  if (saveStateDebounceTimer) {
+    clearTimeout(saveStateDebounceTimer);
+    saveStateDebounceTimer = null;
+  }
+  saveState();
 }
 
 /**
@@ -1760,19 +1708,29 @@ async function loadState() {
       'conversation_state',
       'sent_message_ids',
       'sent_message_hashes',
-      'active_conversations'
+      'processed_incoming_ids',
+      'active_conversations',
+      'queue_status'
     ]);
 
     conversationState.fromObject(saved.conversation_state || {});
     sentMessageIds.fromArray(saved.sent_message_ids || []);
     sentMessageHashes.fromArray(saved.sent_message_hashes || []);
+    processedIncomingIds.fromArray(saved.processed_incoming_ids || []);
     activeConversations.fromArray(saved.active_conversations || []);
+
+    // Restore queue status
+    if (saved.queue_status) {
+      queueStatus = { ...queueStatus, ...saved.queue_status };
+    }
 
     console.log('[Background] State loaded:', {
       conversations: conversationState.size,
       sentMessageIds: sentMessageIds.size,
       sentMessageHashes: sentMessageHashes.size,
-      activeConversations: activeConversations.size
+      processedIncomingIds: processedIncomingIds.size,
+      activeConversations: activeConversations.size,
+      queueRunning: queueStatus.isRunning
     });
   } catch (e) {
     console.error('[Background] Failed to load state:', e);
@@ -1782,16 +1740,22 @@ async function loadState() {
 // Load state immediately on startup
 loadState();
 
-// Save state periodically (every 5 minutes)
-setInterval(saveState, 5 * 60 * 1000);
+// Save state periodically (every 1 minute instead of 5)
+setInterval(saveState, 60 * 1000);
 
-// Save state before service worker terminates
+// Chrome MV3 service worker suspend handler (more reliable than beforeunload)
+chrome.runtime.onSuspend?.addListener(() => {
+  console.log('[Background] Service worker suspending, saving state...');
+  saveStateImmediate();
+});
+
+// Also keep beforeunload as fallback
 self.addEventListener('beforeunload', () => {
-  saveState();
+  saveStateImmediate();
 });
 
 // Handle auth errors from content script
-chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (message.type === 'LINKEDIN_AUTH_ERROR') {
     console.error('[Background] LinkedIn auth error:', message.status, message.message);
 
@@ -1815,135 +1779,374 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 });
 
-// Auto-start polling when extension loads (if was active before)
-chrome.storage.local.get('message_polling_active', (result) => {
-  if (result.message_polling_active) {
-    console.log('[Background] Resuming message polling...');
-    startMessagePolling();
-  }
-});
+// NOTE: Legacy auto-start removed - now handled by unified startAllPolling()
+// which is called when auth_token exists (see bottom of file)
 
 // ==================== PENDING MESSAGE POLLING ====================
 
 // Note: Pending message polling now managed by PollingManager (see UNIFIED STARTUP section)
 
-// ==================== UNIFIED STARTUP ====================
+// Track messages currently being sent to prevent duplicates
+// This Set is persisted to storage to survive service worker restarts
+let messagesBeingSent = new Set();
 
-let lastSyncTime = 0;
-let lastPendingCheckTime = 0;
+// Mutex for atomic message claiming (prevents race conditions)
+let messageClaimMutex = Promise.resolve();
 
 /**
- * Perform automatic inbox sync (called by PollingManager)
+ * Load messagesBeingSent from storage on startup
+ * Cleans up stale entries older than 5 minutes
  */
-async function performAutoSync() {
-  const now = Date.now();
-
-  // Don't sync more than once per minute
-  if (now - lastSyncTime < 60000) {
-    return;
-  }
-
-  console.log('[Background] Performing auto inbox sync...');
-  lastSyncTime = now;
-
+async function loadMessagesBeingSent() {
   try {
-    const token = await getAuthToken();
-    if (!token) {
-      console.log('[Background] Auto sync skipped - not authenticated');
-      return;
+    const result = await chrome.storage.local.get('messages_being_sent');
+    const stored = result.messages_being_sent || {};
+    const now = Date.now();
+    const STALE_THRESHOLD = 5 * 60 * 1000; // 5 minutes
+
+    // Only restore entries that aren't stale (prevents permanent blocking)
+    messagesBeingSent = new Set();
+    for (const [msgId, timestamp] of Object.entries(stored)) {
+      if (now - timestamp < STALE_THRESHOLD) {
+        messagesBeingSent.add(msgId);
+      }
     }
 
-    // Ensure LinkedIn tab exists
-    const linkedInTab = await ensureLinkedInTab(true);
-    if (!linkedInTab) {
-      console.log('[Background] Auto sync skipped - no LinkedIn tab');
-      return;
-    }
-
-    const isLoggedIn = await LinkedInAPI.isLoggedIn();
-    if (!isLoggedIn) {
-      console.log('[Background] Auto sync skipped - not logged in');
-      return;
-    }
-
-    const result = await syncInboxOnLinkedIn(20, true);
-    if (result.success) {
-      console.log('[Background] Auto sync completed:', result.conversations, 'conversations');
-      await chrome.storage.local.set({ last_auto_sync: now });
-    }
-  } catch (error) {
-    console.error('[Background] Auto sync error:', error.message);
+    console.log('[Background] Loaded messagesBeingSent:', messagesBeingSent.size, 'active entries');
+  } catch (e) {
+    console.error('[Background] Failed to load messagesBeingSent:', e);
   }
 }
 
 /**
- * Check and send pending messages (called by PollingManager)
+ * Atomically try to claim a message for sending (mutex-protected)
+ * Returns true if claimed, false if already being sent
+ * @param {number|string} msgId - Message ID
+ * @returns {Promise<boolean>} - True if claimed successfully
  */
-async function performPendingMessageCheck() {
-  const now = Date.now();
+async function tryClaimMessage(msgId) {
+  // Chain onto mutex to ensure atomic check+add
+  return new Promise((resolve) => {
+    messageClaimMutex = messageClaimMutex.then(async () => {
+      // Check if already claimed
+      if (messagesBeingSent.has(msgId)) {
+        resolve(false);
+        return;
+      }
 
-  // Don't check more than once per 20 seconds
-  if (now - lastPendingCheckTime < 20000) {
+      // Claim it
+      messagesBeingSent.add(msgId);
+
+      // Persist to storage with timestamp
+      const stored = {};
+      for (const id of messagesBeingSent) {
+        stored[id] = Date.now();
+      }
+      await chrome.storage.local.set({ messages_being_sent: stored });
+
+      resolve(true);
+    }).catch(() => {
+      resolve(false);
+    });
+  });
+}
+
+/**
+ * Add a message ID to the being-sent tracker (non-atomic, use tryClaimMessage for atomic)
+ * @param {number|string} msgId - Message ID
+ */
+async function addMessageBeingSent(msgId) {
+  messagesBeingSent.add(msgId);
+  // Store with timestamp for staleness detection
+  const stored = {};
+  for (const id of messagesBeingSent) {
+    stored[id] = Date.now();
+  }
+  await chrome.storage.local.set({ messages_being_sent: stored });
+}
+
+/**
+ * Remove a message ID from the being-sent tracker
+ * @param {number|string} msgId - Message ID
+ */
+async function removeMessageBeingSent(msgId) {
+  messagesBeingSent.delete(msgId);
+  const stored = {};
+  for (const id of messagesBeingSent) {
+    stored[id] = Date.now();
+  }
+  await chrome.storage.local.set({ messages_being_sent: stored });
+}
+
+// Load on startup
+loadMessagesBeingSent();
+
+// ==================== UNIFIED STARTUP ====================
+
+// Track polling cycle count for less frequent tasks
+let pollingCycleCount = 0;
+const AUTO_SYNC_EVERY_N_CYCLES = 10; // Auto sync every 10 cycles (5 minutes at 30s interval)
+
+// Track consecutive failures for backoff
+let consecutiveNoTabFailures = 0;
+const MAX_NO_TAB_FAILURES = 5; // After 5 failures, increase interval
+
+/**
+ * Unified polling cycle - consolidates all polling tasks into one
+ * This reduces overhead by sharing LinkedIn tab lookup and content script ping
+ */
+async function performUnifiedPollingCycle() {
+  pollingCycleCount++;
+  console.log(`[Background] === Polling cycle #${pollingCycleCount} ===`);
+
+  // Step 1: Check for LinkedIn tab (shared across all tasks)
+  const linkedInTab = await findLinkedInTab();
+  if (!linkedInTab) {
+    consecutiveNoTabFailures++;
+    console.log(`[Background] No LinkedIn tab found (failure #${consecutiveNoTabFailures})`);
+
+    // After too many failures, slow down polling
+    if (consecutiveNoTabFailures >= MAX_NO_TAB_FAILURES) {
+      console.log('[Background] Too many consecutive failures, pausing polling for 2 minutes');
+      PollingManager.stop('unified');
+      setTimeout(() => {
+        consecutiveNoTabFailures = 0; // Reset counter
+        startAllPolling();
+      }, 2 * 60 * 1000); // Resume after 2 minutes
+    }
     return;
   }
 
-  console.log('[Background] Checking for pending messages...');
-  lastPendingCheckTime = now;
+  // Reset failure counter on success
+  consecutiveNoTabFailures = 0;
 
+  // Step 2: Check if content script is ready (shared)
+  const isReady = await waitForContentScript(linkedInTab.id, 3);
+  if (!isReady) {
+    console.log('[Background] Content script not ready, skipping cycle');
+    return;
+  }
+
+  // Step 3: Check LinkedIn login (shared)
+  const isLoggedIn = await LinkedInAPI.isLoggedIn();
+  if (!isLoggedIn) {
+    console.log('[Background] Not logged in to LinkedIn, skipping cycle');
+    return;
+  }
+
+  // Step 4: Check auth token (shared)
+  const token = await getAuthToken();
+  if (!token) {
+    console.log('[Background] No auth token, skipping cycle');
+    return;
+  }
+
+  console.log('[Background] All checks passed, executing tasks...');
+
+  // Task A: Check for new messages (every cycle)
   try {
-    const token = await getAuthToken();
-    if (!token) return;
+    await checkForNewMessagesInternal(linkedInTab);
+  } catch (e) {
+    console.error('[Background] New messages check failed:', e.message);
+  }
 
-    const linkedInTab = await ensureLinkedInTab(true);
-    if (!linkedInTab) return;
+  // Task B: Check for pending messages to send (every cycle)
+  try {
+    await performPendingMessageCheckInternal();
+  } catch (e) {
+    console.error('[Background] Pending messages check failed:', e.message);
+  }
 
-    const isLoggedIn = await LinkedInAPI.isLoggedIn();
-    if (!isLoggedIn) return;
+  // Task C: Auto sync (every N cycles - less frequent)
+  if (pollingCycleCount % AUTO_SYNC_EVERY_N_CYCLES === 0) {
+    try {
+      await performAutoSyncInternal(linkedInTab);
+    } catch (e) {
+      console.error('[Background] Auto sync failed:', e.message);
+    }
+  }
 
-    const data = await backgroundApiCall('/inbox/pending-messages', 'GET');
-    const pendingMessages = data.messages || [];
+  console.log(`[Background] === Cycle #${pollingCycleCount} complete ===`);
+}
 
-    if (pendingMessages.length === 0) return;
+/**
+ * Internal: Check for new messages (uses pre-validated tab)
+ */
+async function checkForNewMessagesInternal(linkedInTab) {
+  console.log('[Background] Checking for new messages...');
 
-    console.log('[Background] Found', pendingMessages.length, 'pending message(s)');
+  const response = await chrome.tabs.sendMessage(linkedInTab.id, {
+    type: 'CHECK_NEW_MESSAGES',
+    lastKnownState: conversationState.toObject(),
+    activeConversations: activeConversations.toArray()
+  });
 
-    for (const msg of pendingMessages) {
-      const conversationId = msg.conversation?.linkedin_conversation_id;
-      if (!conversationId) {
-        await backgroundApiCall(`/inbox/messages/${msg.id}/mark-sent`, 'POST', {
-          success: false,
-          error_message: 'No LinkedIn conversation ID'
+  if (!response?.success) {
+    console.log('[Background] New messages check returned error:', response?.error);
+    return;
+  }
+
+  // Update conversation state
+  if (response.updatedState) {
+    for (const [key, value] of Object.entries(response.updatedState)) {
+      conversationState.set(key, value);
+    }
+  }
+
+  if (!response.newMessages?.length) {
+    console.log('[Background] No new messages');
+    return;
+  }
+
+  console.log('[Background] Found', response.newMessages.length, 'new messages');
+
+  // Filter out sent messages and already processed
+  const incomingMessages = response.newMessages.filter(msg => {
+    const messageId = msg.linkedin_message_id || msg.message?.linkedin_message_id;
+
+    if (messageId && processedIncomingIds.has(messageId)) return false;
+    if (messageId && sentMessageIds.has(messageId)) return false;
+
+    const hash = simpleHash(msg.message?.content);
+    if (hash && sentMessageHashes.has(hash)) return false;
+
+    return true;
+  });
+
+  console.log('[Background] After filtering:', incomingMessages.length, 'incoming messages');
+
+  // Send to backend
+  for (const msg of incomingMessages) {
+    try {
+      try {
+        await backgroundApiCall('/inbox/incoming-message', 'POST', {
+          linkedin_conversation_id: msg.conversationId,
+          participant_name: msg.participantName,
+          message: msg.message
         });
-        continue;
+      } catch (error) {
+        if (error.status === 404) {
+          // Create conversation first
+          await backgroundApiCall('/inbox/conversations', 'POST', {
+            linkedin_conversation_id: msg.conversationId,
+            participant_name: msg.participantName || 'Unknown'
+          });
+          await backgroundApiCall('/inbox/incoming-message', 'POST', {
+            linkedin_conversation_id: msg.conversationId,
+            participant_name: msg.participantName,
+            message: msg.message
+          });
+        } else {
+          throw error;
+        }
       }
 
+      // Mark as processed
+      const processedId = msg.linkedin_message_id || msg.message?.linkedin_message_id;
+      if (processedId) {
+        processedIncomingIds.add(processedId);
+      }
+    } catch (error) {
+      console.error('[Background] Failed to send message to backend:', error.message);
+    }
+  }
+
+  // Notify webapp
+  if (incomingMessages.length > 0) {
+    await chrome.storage.local.set({
+      new_messages_available: true,
+      new_messages_count: incomingMessages.length,
+      new_messages_timestamp: Date.now()
+    });
+  }
+}
+
+/**
+ * Internal: Check and send pending messages
+ */
+async function performPendingMessageCheckInternal() {
+  console.log('[Background] Checking for pending messages...');
+
+  const data = await backgroundApiCall('/inbox/pending-messages', 'GET');
+  const pendingMessages = data.messages || [];
+
+  if (pendingMessages.length === 0) {
+    console.log('[Background] No pending messages');
+    return;
+  }
+
+  console.log('[Background] Found', pendingMessages.length, 'pending message(s)');
+
+  for (const msg of pendingMessages) {
+    const claimed = await tryClaimMessage(msg.id);
+    if (!claimed) {
+      console.log('[Background] Skipping message', msg.id, '- already claimed');
+      continue;
+    }
+
+    const conversationId = msg.conversation?.linkedin_conversation_id;
+    if (!conversationId) {
+      await backgroundApiCall(`/inbox/messages/${msg.id}/mark-sent`, 'POST', {
+        success: false,
+        error_message: 'No LinkedIn conversation ID'
+      });
+      await removeMessageBeingSent(msg.id);
+      continue;
+    }
+
+    try {
       const result = await sendMessageOnLinkedIn(conversationId, msg.content, msg.id);
       if (result.success) {
         console.log('[Background] Sent pending message:', msg.id);
       }
-
-      // Delay between messages
-      await new Promise(resolve => setTimeout(resolve, 2000));
+    } finally {
+      await removeMessageBeingSent(msg.id);
     }
-  } catch (error) {
-    console.error('[Background] Pending message error:', error.message);
+
+    await new Promise(resolve => setTimeout(resolve, 2000));
   }
 }
 
 /**
- * Start all polling tasks using unified manager
+ * Internal: Perform auto sync (uses pre-validated tab)
+ */
+async function performAutoSyncInternal(linkedInTab) {
+  console.log('[Background] Performing auto sync...');
+
+  const response = await chrome.tabs.sendMessage(linkedInTab.id, {
+    type: 'SYNC_CONVERSATIONS_VIA_API',
+    count: 20
+  });
+
+  if (!response?.success) {
+    console.log('[Background] Auto sync failed:', response?.error);
+    return;
+  }
+
+  const conversations = response.conversations || [];
+  if (conversations.length === 0) {
+    console.log('[Background] No conversations to sync');
+    return;
+  }
+
+  // Send to backend
+  try {
+    await backgroundApiCall('/inbox/sync', 'POST', { conversations });
+    console.log('[Background] Auto sync complete:', conversations.length, 'conversations');
+    await chrome.storage.local.set({ last_auto_sync: Date.now() });
+  } catch (e) {
+    console.error('[Background] Backend sync failed:', e.message);
+  }
+}
+
+/**
+ * Start unified polling (single task instead of three)
  */
 function startAllPolling() {
   console.log('[Background] Starting unified polling...');
 
-  // New message polling - every 30 seconds
-  PollingManager.start('newMessages', checkForNewMessages, 30000);
-
-  // Pending message check - every 30 seconds
-  PollingManager.start('pendingMessages', performPendingMessageCheck, 30000);
-
-  // Auto inbox sync - every 5 minutes
-  PollingManager.start('autoSync', performAutoSync, 5 * 60 * 1000);
+  // Single unified polling cycle - every 30 seconds
+  PollingManager.start('unified', performUnifiedPollingCycle, 30000);
 
   chrome.storage.local.set({ polling_active: true });
 }
@@ -1953,6 +2156,8 @@ function startAllPolling() {
  */
 function stopAllPolling() {
   PollingManager.stopAll();
+  pollingCycleCount = 0;
+  consecutiveNoTabFailures = 0;
   chrome.storage.local.set({ polling_active: false });
 }
 
@@ -1967,7 +2172,7 @@ chrome.storage.local.get(['auth_token'], async (result) => {
 });
 
 // Start polling when auth succeeds
-chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+chrome.runtime.onMessage.addListener((message) => {
   if (message.type === 'AUTH_STATE_CHANGED' && message.authenticated) {
     console.log('[Background] Auth state changed, starting polling');
     startAllPolling();

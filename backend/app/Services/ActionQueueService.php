@@ -133,10 +133,85 @@ class ActionQueueService
             'action_key' => $step->action->key,
         ];
 
-        // Include message template content if step requires it
-        if ($step->needsTemplate() && $step->messageTemplate) {
-            $prospect = $campaignProspect->prospect;
+        $prospect = $campaignProspect->prospect;
 
+        // Handle conditional actions (like connect_message) that need two templates
+        if ($step->action->key === 'connect_message') {
+            $config = $step->config ?? [];
+
+            // Primary template: used when connected (message)
+            if ($step->messageTemplate) {
+                $data['connected_message'] = $this->personalizeMessage(
+                    $step->messageTemplate->content,
+                    $prospect
+                );
+                $data['connected_template_id'] = $step->message_template_id;
+            }
+
+            // Secondary template: used when not connected (invite)
+            // Stored in step config as 'invite_template_id'
+            if (!empty($config['invite_template_id'])) {
+                $inviteTemplate = \App\Models\MessageTemplate::find($config['invite_template_id']);
+                if ($inviteTemplate) {
+                    $data['invite_message'] = $this->personalizeMessage(
+                        $inviteTemplate->content,
+                        $prospect
+                    );
+                    $data['invite_template_id'] = $config['invite_template_id'];
+                }
+            }
+
+            $data['is_conditional'] = true;
+        }
+        // Handle visit_follow_connect (combo: visit + follow + invite)
+        elseif ($step->action->key === 'visit_follow_connect') {
+            // Only needs invite template
+            if ($step->messageTemplate) {
+                $data['invite_message'] = $this->personalizeMessage(
+                    $step->messageTemplate->content,
+                    $prospect
+                );
+                $data['template_id'] = $step->message_template_id;
+            }
+            $data['is_combo'] = true;
+        }
+        // Handle email_message (email if possible, message as fallback)
+        elseif ($step->action->key === 'email_message') {
+            $config = $step->config ?? [];
+
+            // Include prospect's email (if available) for the extension to check
+            $data['prospect_email'] = $prospect->email;
+
+            // Primary template: email
+            if ($step->messageTemplate) {
+                $emailTemplate = $step->messageTemplate;
+                $data['email_subject'] = $this->personalizeMessage(
+                    $emailTemplate->subject ?? 'Hello {firstName}',
+                    $prospect
+                );
+                $data['email_body'] = $this->personalizeMessage(
+                    $emailTemplate->content,
+                    $prospect
+                );
+                $data['email_template_id'] = $step->message_template_id;
+            }
+
+            // Fallback template: LinkedIn message (stored in config)
+            if (!empty($config['fallback_template_id'])) {
+                $fallbackTemplate = \App\Models\MessageTemplate::find($config['fallback_template_id']);
+                if ($fallbackTemplate) {
+                    $data['fallback_message'] = $this->personalizeMessage(
+                        $fallbackTemplate->content,
+                        $prospect
+                    );
+                    $data['fallback_template_id'] = $config['fallback_template_id'];
+                }
+            }
+
+            $data['is_conditional'] = true;
+        }
+        // Standard template handling for non-conditional actions
+        elseif ($step->needsTemplate() && $step->messageTemplate) {
             // Get raw template content
             $message = $step->messageTemplate->content;
 
@@ -171,15 +246,23 @@ class ActionQueueService
         $firstName = $nameParts[0] ?? '';
         $lastName = count($nameParts) > 1 ? implode(' ', array_slice($nameParts, 1)) : '';
 
-        // Replace placeholders
+        // Replace placeholders (support multiple case variations)
         $replacements = [
             '{firstName}' => $firstName,
-            '{firstName}' => $firstName, // Handle different cases
+            '{FirstName}' => $firstName,
+            '{first_name}' => $firstName,
             '{lastName}' => $lastName,
+            '{LastName}' => $lastName,
+            '{last_name}' => $lastName,
             '{fullName}' => $prospect->full_name ?? '',
+            '{FullName}' => $prospect->full_name ?? '',
+            '{full_name}' => $prospect->full_name ?? '',
             '{company}' => $prospect->company ?? '',
+            '{Company}' => $prospect->company ?? '',
             '{headline}' => $prospect->headline ?? '',
+            '{Headline}' => $prospect->headline ?? '',
             '{location}' => $prospect->location ?? '',
+            '{Location}' => $prospect->location ?? '',
         ];
 
         return str_replace(array_keys($replacements), array_values($replacements), $message);
@@ -196,14 +279,9 @@ class ActionQueueService
      */
     public function getNextAction(User $user): ?ActionQueue
     {
-        // First, reset any stale in_progress actions (stuck for more than 5 minutes)
-        ActionQueue::where('user_id', $user->id)
-            ->where('status', self::STATUS_IN_PROGRESS)
-            ->where('updated_at', '<', now()->subMinutes(5))
-            ->update([
-                'status' => self::STATUS_PENDING,
-                'result' => 'Reset: Action was stuck in progress'
-            ]);
+        // OPTIMIZATION: Only check for stale actions once every 2 minutes per user
+        // Instead of running UPDATE query on every poll
+        $this->resetStaleActionsIfNeeded($user);
 
         return ActionQueue::where('user_id', $user->id)
             ->where('status', self::STATUS_PENDING)
@@ -217,6 +295,40 @@ class ActionQueueService
     }
 
     /**
+     * Reset stale in_progress actions, but only check once every 2 minutes per user.
+     * Uses cache to avoid running expensive UPDATE query on every poll.
+     *
+     * @param User $user
+     * @return void
+     */
+    protected function resetStaleActionsIfNeeded(User $user): void
+    {
+        $cacheKey = "stale_action_check_{$user->id}";
+        $checkInterval = 120; // 2 minutes
+
+        // Check if we've already done this check recently
+        if (cache()->has($cacheKey)) {
+            return;
+        }
+
+        // Mark that we're doing this check now
+        cache()->put($cacheKey, true, $checkInterval);
+
+        // Reset any stale in_progress actions (stuck for more than 5 minutes)
+        $resetCount = ActionQueue::where('user_id', $user->id)
+            ->where('status', self::STATUS_IN_PROGRESS)
+            ->where('updated_at', '<', now()->subMinutes(5))
+            ->update([
+                'status' => self::STATUS_PENDING,
+                'result' => 'Reset: Action was stuck in progress'
+            ]);
+
+        if ($resetCount > 0) {
+            Log::info("Reset {$resetCount} stale actions for user {$user->id}");
+        }
+    }
+
+    /**
      * Mark an action as in progress (being executed by extension).
      *
      * @param ActionQueue $action
@@ -226,6 +338,26 @@ class ActionQueueService
     {
         $action->status = self::STATUS_IN_PROGRESS;
         return $action->save();
+    }
+
+    /**
+     * Atomically mark an action as in progress.
+     * Only succeeds if the action is still in 'pending' status.
+     * This prevents race conditions where multiple requests try to claim the same action.
+     *
+     * @param ActionQueue $action
+     * @return bool True if successfully marked, false if already claimed
+     */
+    public function markInProgressAtomic(ActionQueue $action): bool
+    {
+        $updated = ActionQueue::where('id', $action->id)
+            ->where('status', self::STATUS_PENDING)
+            ->update([
+                'status' => self::STATUS_IN_PROGRESS,
+                'updated_at' => now(),
+            ]);
+
+        return $updated > 0;
     }
 
     /**
@@ -251,8 +383,8 @@ class ActionQueueService
             if ($campaignProspect) {
                 $campaignProspect->advanceStep();
 
-                // Check if all steps are completed
-                $campaign = $action->campaign;
+                // Refresh campaign to get fresh data (avoid stale cached relation)
+                $campaign = $action->campaign()->first();
                 $totalSteps = $campaign->steps()->count();
 
                 if ($campaignProspect->current_step >= $totalSteps) {
@@ -260,10 +392,13 @@ class ActionQueueService
                     $campaign->incrementProcessedProspects();
                     $campaign->incrementSuccessCount();
                 }
+
+                // Refresh again after incrementing for accurate completion check
+                $campaign->refresh();
             }
 
-            // Update campaign stats
-            $this->checkCampaignCompletion($action->campaign);
+            // Check campaign completion with fresh data
+            $this->checkCampaignCompletion($action->campaign()->first());
 
             DB::commit();
             return true;
@@ -281,19 +416,24 @@ class ActionQueueService
      * @param ActionQueue $action
      * @param string $error Error message
      * @param bool $retry Should we retry this action?
-     * @return bool
+     * @return array{success: bool, retry_scheduled: bool} Result with retry info
      */
-    public function markFailed(ActionQueue $action, string $error, bool $retry = false): bool
+    public function markFailed(ActionQueue $action, string $error, bool $retry = false): array
     {
         DB::beginTransaction();
 
+        // Check retry eligibility BEFORE incrementing (max 3 retries = attempts 1, 2, 3)
+        $canRetry = $retry && $action->retry_count < 3;
+        $retryScheduled = false;
+
         try {
-            if ($retry && $action->retry_count < 3) {
+            if ($canRetry) {
                 // Retry: increment count and reschedule for 5 minutes later
                 $action->retry_count++;
                 $action->scheduled_for = now()->addMinutes(5);
                 $action->status = self::STATUS_PENDING;
                 $action->result = "Retry {$action->retry_count}: {$error}";
+                $retryScheduled = true;
             } else {
                 // Final failure
                 $action->status = self::STATUS_FAILED;
@@ -305,10 +445,11 @@ class ActionQueueService
                 if ($campaignProspect) {
                     $campaignProspect->markFailed($error);
 
-                    // Update campaign stats
-                    $campaign = $action->campaign;
+                    // Refresh campaign to get fresh data (avoid stale cached relation)
+                    $campaign = $action->campaign()->first();
                     $campaign->incrementProcessedProspects();
                     $campaign->incrementFailureCount();
+                    $campaign->refresh();
                 }
 
                 // Cancel remaining actions for this prospect in this campaign
@@ -317,16 +458,16 @@ class ActionQueueService
 
             $action->save();
 
-            // Check if campaign is done
-            $this->checkCampaignCompletion($action->campaign);
+            // Check if campaign is done with fresh data
+            $this->checkCampaignCompletion($action->campaign()->first());
 
             DB::commit();
-            return true;
+            return ['success' => true, 'retry_scheduled' => $retryScheduled];
 
         } catch (\Exception $e) {
             DB::rollBack();
             Log::error("Failed to mark action {$action->id} as failed: " . $e->getMessage());
-            return false;
+            return ['success' => false, 'retry_scheduled' => false];
         }
     }
 
@@ -390,27 +531,31 @@ class ActionQueueService
 
     /**
      * Get action queue statistics for a user.
+     * OPTIMIZATION: Uses single query with conditional aggregation instead of 6 separate queries.
      *
      * @param User $user
      * @return array
      */
     public function getStats(User $user): array
     {
-        $baseQuery = ActionQueue::where('user_id', $user->id);
+        $today = today()->toDateString();
+
+        $stats = ActionQueue::where('user_id', $user->id)
+            ->selectRaw("SUM(CASE WHEN status = ? THEN 1 ELSE 0 END) as pending", [self::STATUS_PENDING])
+            ->selectRaw("SUM(CASE WHEN status = ? THEN 1 ELSE 0 END) as in_progress", [self::STATUS_IN_PROGRESS])
+            ->selectRaw("SUM(CASE WHEN status = ? THEN 1 ELSE 0 END) as completed", [self::STATUS_COMPLETED])
+            ->selectRaw("SUM(CASE WHEN status = ? THEN 1 ELSE 0 END) as failed", [self::STATUS_FAILED])
+            ->selectRaw("SUM(CASE WHEN status = ? AND DATE(executed_at) = ? THEN 1 ELSE 0 END) as today_completed", [self::STATUS_COMPLETED, $today])
+            ->selectRaw("SUM(CASE WHEN status = ? AND DATE(executed_at) = ? THEN 1 ELSE 0 END) as today_failed", [self::STATUS_FAILED, $today])
+            ->first();
 
         return [
-            'pending' => (clone $baseQuery)->where('status', self::STATUS_PENDING)->count(),
-            'in_progress' => (clone $baseQuery)->where('status', self::STATUS_IN_PROGRESS)->count(),
-            'completed' => (clone $baseQuery)->where('status', self::STATUS_COMPLETED)->count(),
-            'failed' => (clone $baseQuery)->where('status', self::STATUS_FAILED)->count(),
-            'today_completed' => (clone $baseQuery)
-                ->where('status', self::STATUS_COMPLETED)
-                ->whereDate('executed_at', today())
-                ->count(),
-            'today_failed' => (clone $baseQuery)
-                ->where('status', self::STATUS_FAILED)
-                ->whereDate('executed_at', today())
-                ->count(),
+            'pending' => (int) ($stats->pending ?? 0),
+            'in_progress' => (int) ($stats->in_progress ?? 0),
+            'completed' => (int) ($stats->completed ?? 0),
+            'failed' => (int) ($stats->failed ?? 0),
+            'today_completed' => (int) ($stats->today_completed ?? 0),
+            'today_failed' => (int) ($stats->today_failed ?? 0),
         ];
     }
 

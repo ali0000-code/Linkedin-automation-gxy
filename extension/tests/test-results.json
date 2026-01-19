@@ -1,0 +1,601 @@
+{
+  "config": {
+    "configFile": "/Users/UMER/Documents/Projects/Linkedin-automation-gxy/extension/tests/playwright.config.js",
+    "rootDir": "/Users/UMER/Documents/Projects/Linkedin-automation-gxy/extension/tests",
+    "forbidOnly": false,
+    "fullyParallel": false,
+    "globalSetup": null,
+    "globalTeardown": null,
+    "globalTimeout": 0,
+    "grep": {},
+    "grepInvert": null,
+    "maxFailures": 0,
+    "metadata": {
+      "actualWorkers": 1
+    },
+    "preserveOutput": "always",
+    "reporter": [
+      [
+        "html",
+        {
+          "open": "never"
+        }
+      ],
+      [
+        "json",
+        {
+          "outputFile": "test-results.json"
+        }
+      ],
+      [
+        "list",
+        null
+      ]
+    ],
+    "reportSlowTests": {
+      "max": 5,
+      "threshold": 300000
+    },
+    "quiet": false,
+    "projects": [
+      {
+        "outputDir": "/Users/UMER/Documents/Projects/Linkedin-automation-gxy/extension/tests/test-results",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {
+          "actualWorkers": 1
+        },
+        "id": "chromium",
+        "name": "chromium",
+        "testDir": "/Users/UMER/Documents/Projects/Linkedin-automation-gxy/extension/tests",
+        "testIgnore": [],
+        "testMatch": [
+          "*.spec.js"
+        ],
+        "timeout": 60000
+      }
+    ],
+    "shard": null,
+    "tags": [],
+    "updateSnapshots": "missing",
+    "updateSourceMethod": "patch",
+    "version": "1.57.0",
+    "workers": 1,
+    "webServer": null
+  },
+  "suites": [
+    {
+      "title": "complete-test.spec.js",
+      "file": "complete-test.spec.js",
+      "column": 0,
+      "line": 0,
+      "specs": [],
+      "suites": [
+        {
+          "title": "Complete Selector Test",
+          "file": "complete-test.spec.js",
+          "line": 47,
+          "column": 15,
+          "specs": [
+            {
+              "title": "1. Profile Page Selectors",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 60000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 25188,
+                      "errors": [],
+                      "stdout": [
+                        {
+                          "text": "\n\n========================================\n"
+                        },
+                        {
+                          "text": "  PROFILE PAGE SELECTORS\n"
+                        },
+                        {
+                          "text": "========================================\n\n"
+                        },
+                        {
+                          "text": "\n Testing: mahammaqsood\n"
+                        },
+                        {
+                          "text": "   ✅ ACTION_CONTAINER: 4\n"
+                        },
+                        {
+                          "text": "   ✅ CONNECT_BUTTON: 2\n"
+                        },
+                        {
+                          "text": "   ✅ MESSAGE_BUTTON: 2\n"
+                        },
+                        {
+                          "text": "   ✅ FOLLOW_BUTTON: 11\n"
+                        },
+                        {
+                          "text": "   ✅ MORE_BUTTON: 2\n"
+                        },
+                        {
+                          "text": "   ❌ PENDING_BUTTON: 0\n"
+                        },
+                        {
+                          "text": "\n Testing: irma-waqar-abbasi\n"
+                        },
+                        {
+                          "text": "   ✅ ACTION_CONTAINER: 4\n"
+                        },
+                        {
+                          "text": "   ❌ CONNECT_BUTTON: 0\n"
+                        },
+                        {
+                          "text": "   ✅ MESSAGE_BUTTON: 2\n"
+                        },
+                        {
+                          "text": "   ✅ FOLLOW_BUTTON: 13\n"
+                        },
+                        {
+                          "text": "   ✅ MORE_BUTTON: 2\n"
+                        },
+                        {
+                          "text": "   ❌ PENDING_BUTTON: 0\n"
+                        },
+                        {
+                          "text": "\n Profile Summary:\n"
+                        },
+                        {
+                          "text": "   Working: 5\n"
+                        },
+                        {
+                          "text": "   Broken: 1\n"
+                        }
+                      ],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-01-19T08:17:37.526Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "700ef68eb2ea2fe872be-ab0d6f414f85f9869607",
+              "file": "complete-test.spec.js",
+              "line": 50,
+              "column": 3
+            },
+            {
+              "title": "2. Contact Info Selectors",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 60000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 19237,
+                      "errors": [],
+                      "stdout": [
+                        {
+                          "text": "\n\n========================================\n"
+                        },
+                        {
+                          "text": "  CONTACT INFO SELECTORS\n"
+                        },
+                        {
+                          "text": "========================================\n\n"
+                        },
+                        {
+                          "text": "   ✅ MODAL: 1\n"
+                        },
+                        {
+                          "text": "   ✅ CLOSE_BUTTON: 1\n"
+                        },
+                        {
+                          "text": "   ✅ EMAIL_LINK: 1\n"
+                        },
+                        {
+                          "text": "   ✅ PROFILE_LINK: 57\n"
+                        },
+                        {
+                          "text": "\n Contact Info Summary:\n"
+                        },
+                        {
+                          "text": "   Working: 4\n"
+                        },
+                        {
+                          "text": "   Broken: 0\n"
+                        }
+                      ],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-01-19T08:18:04.268Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "700ef68eb2ea2fe872be-991752f90c6c2a53f3a8",
+              "file": "complete-test.spec.js",
+              "line": 120,
+              "column": 3
+            },
+            {
+              "title": "3. Messaging Selectors",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 60000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 24582,
+                      "errors": [],
+                      "stdout": [
+                        {
+                          "text": "\n\n========================================\n"
+                        },
+                        {
+                          "text": "  MESSAGING SELECTORS\n"
+                        },
+                        {
+                          "text": "========================================\n\n"
+                        },
+                        {
+                          "text": "   ✅ CONVERSATION_LIST: 1\n"
+                        },
+                        {
+                          "text": "   ✅ CONVERSATION_ITEM: 15\n"
+                        },
+                        {
+                          "text": "   ✅ PARTICIPANT_NAME: 10\n"
+                        },
+                        {
+                          "text": "   ✅ MESSAGE_PREVIEW: 10\n"
+                        },
+                        {
+                          "text": "   ✅ TIMESTAMP: 10\n"
+                        },
+                        {
+                          "text": "   ✅ MESSAGE_LIST: 1\n"
+                        },
+                        {
+                          "text": "   ✅ MESSAGE_ITEM: 20\n"
+                        },
+                        {
+                          "text": "   ✅ MESSAGE_CONTENT: 20\n"
+                        },
+                        {
+                          "text": "   ✅ MESSAGE_INPUT: 1\n"
+                        },
+                        {
+                          "text": "   ✅ SEND_BUTTON: 1\n"
+                        },
+                        {
+                          "text": "\n Messaging Summary:\n"
+                        },
+                        {
+                          "text": "   Working: 10\n"
+                        },
+                        {
+                          "text": "   Broken: 0\n"
+                        }
+                      ],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-01-19T08:18:23.521Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "700ef68eb2ea2fe872be-6ac683f2104c5075d294",
+              "file": "complete-test.spec.js",
+              "line": 161,
+              "column": 3
+            },
+            {
+              "title": "4. Connections Selectors",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 60000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 6883,
+                      "errors": [],
+                      "stdout": [
+                        {
+                          "text": "\n\n========================================\n"
+                        },
+                        {
+                          "text": "  CONNECTIONS SELECTORS\n"
+                        },
+                        {
+                          "text": "========================================\n\n"
+                        },
+                        {
+                          "text": "   ✅ CONNECTION_CARD_LINK: 20\n"
+                        },
+                        {
+                          "text": "   ✅ CARD_PROFILE_IMAGE: 10\n"
+                        },
+                        {
+                          "text": "   ✅ CARD_NAME_LINK: 10\n"
+                        },
+                        {
+                          "text": "   ❌ PROFILE_IMAGE: 0\n"
+                        },
+                        {
+                          "text": "\n Connections Summary:\n"
+                        },
+                        {
+                          "text": "   Working: 3\n"
+                        },
+                        {
+                          "text": "   Broken: 1\n"
+                        }
+                      ],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-01-19T08:18:48.114Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "700ef68eb2ea2fe872be-53452bb71665830601bb",
+              "file": "complete-test.spec.js",
+              "line": 237,
+              "column": 3
+            },
+            {
+              "title": "5. Search Selectors",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 60000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 17454,
+                      "errors": [],
+                      "stdout": [
+                        {
+                          "text": "\n\n========================================\n"
+                        },
+                        {
+                          "text": "  SEARCH SELECTORS\n"
+                        },
+                        {
+                          "text": "========================================\n\n"
+                        },
+                        {
+                          "text": "   ✅ PROFILE_LINK: 10\n"
+                        },
+                        {
+                          "text": "   ✅ PROFILE_IMAGE: 27\n"
+                        },
+                        {
+                          "text": "\n Search Summary:\n"
+                        },
+                        {
+                          "text": "   Working: 2\n"
+                        },
+                        {
+                          "text": "   Broken: 0\n"
+                        }
+                      ],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-01-19T08:18:55.005Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "700ef68eb2ea2fe872be-47cb92a2acfe58b96d86",
+              "file": "complete-test.spec.js",
+              "line": 268,
+              "column": 3
+            },
+            {
+              "title": "6. Generate Report",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 60000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 1,
+                      "errors": [],
+                      "stdout": [
+                        {
+                          "text": "\n\n========================================\n"
+                        },
+                        {
+                          "text": "  FINAL REPORT\n"
+                        },
+                        {
+                          "text": "========================================\n\n"
+                        },
+                        {
+                          "text": " WORKING SELECTORS:\n"
+                        },
+                        {
+                          "text": "   ✅ ACTION_CONTAINER\n"
+                        },
+                        {
+                          "text": "   ✅ CONNECT_BUTTON\n"
+                        },
+                        {
+                          "text": "   ✅ MESSAGE_BUTTON\n"
+                        },
+                        {
+                          "text": "   ✅ FOLLOW_BUTTON\n"
+                        },
+                        {
+                          "text": "   ✅ MORE_BUTTON\n"
+                        },
+                        {
+                          "text": "   ✅ MODAL\n"
+                        },
+                        {
+                          "text": "   ✅ CLOSE_BUTTON\n"
+                        },
+                        {
+                          "text": "   ✅ EMAIL_LINK\n"
+                        },
+                        {
+                          "text": "   ✅ PROFILE_LINK\n"
+                        },
+                        {
+                          "text": "   ✅ CONVERSATION_LIST\n"
+                        },
+                        {
+                          "text": "   ✅ CONVERSATION_ITEM\n"
+                        },
+                        {
+                          "text": "   ✅ PARTICIPANT_NAME\n"
+                        },
+                        {
+                          "text": "   ✅ MESSAGE_PREVIEW\n"
+                        },
+                        {
+                          "text": "   ✅ TIMESTAMP\n"
+                        },
+                        {
+                          "text": "   ✅ MESSAGE_LIST\n"
+                        },
+                        {
+                          "text": "   ✅ MESSAGE_ITEM\n"
+                        },
+                        {
+                          "text": "   ✅ MESSAGE_CONTENT\n"
+                        },
+                        {
+                          "text": "   ✅ MESSAGE_INPUT\n"
+                        },
+                        {
+                          "text": "   ✅ SEND_BUTTON\n"
+                        },
+                        {
+                          "text": "   ✅ CONNECTION_CARD_LINK\n"
+                        },
+                        {
+                          "text": "   ✅ CARD_PROFILE_IMAGE\n"
+                        },
+                        {
+                          "text": "   ✅ CARD_NAME_LINK\n"
+                        },
+                        {
+                          "text": "   ✅ PROFILE_LINK\n"
+                        },
+                        {
+                          "text": "   ✅ PROFILE_IMAGE\n"
+                        },
+                        {
+                          "text": "\n BROKEN SELECTORS:\n"
+                        },
+                        {
+                          "text": "   ❌ PENDING_BUTTON\n"
+                        },
+                        {
+                          "text": "   ❌ PROFILE_IMAGE\n"
+                        },
+                        {
+                          "text": "\n----------------------------------------\n"
+                        },
+                        {
+                          "text": " TOTAL: 24 working, 2 broken\n"
+                        },
+                        {
+                          "text": "========================================\n\n"
+                        },
+                        {
+                          "text": " JSON report saved to: test-results.json\n\n"
+                        }
+                      ],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-01-19T08:19:12.465Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "700ef68eb2ea2fe872be-fff73ba619bf2d656c18",
+              "file": "complete-test.spec.js",
+              "line": 297,
+              "column": 3
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "errors": [],
+  "stats": {
+    "startTime": "2026-01-19T08:17:36.985Z",
+    "duration": 95650.06,
+    "expected": 6,
+    "skipped": 0,
+    "unexpected": 0,
+    "flaky": 0
+  }
+}

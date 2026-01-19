@@ -13,6 +13,67 @@ use Illuminate\Support\Facades\DB;
 class InboxController extends Controller
 {
     /**
+     * Normalize LinkedIn conversation ID to consistent format.
+     * Handles various URN formats and extracts the base ID.
+     *
+     * @param string $conversationId
+     * @return string
+     */
+    private function normalizeConversationId(string $conversationId): string
+    {
+        // Already normalized (just the ID like "2-xxx")
+        if (preg_match('/^[\d]+-[a-zA-Z0-9_-]+$/', $conversationId)) {
+            return $conversationId;
+        }
+
+        // Format: urn:li:fs_conversation:2-xxx
+        if (preg_match('/fs_conversation:([^,)\s]+)/', $conversationId, $matches)) {
+            return $matches[1];
+        }
+
+        // Format: urn:li:messagingThread:2-xxx
+        if (preg_match('/messagingThread:([^,)\s]+)/', $conversationId, $matches)) {
+            return $matches[1];
+        }
+
+        // Format: urn:li:msg_conversation:(xxx,2-xxx)
+        if (preg_match('/,([^)]+)\)/', $conversationId, $matches)) {
+            return $matches[1];
+        }
+
+        // Return as-is if no pattern matches
+        return $conversationId;
+    }
+
+    /**
+     * Check if two names match (for is_from_me detection).
+     * Handles slight variations like extra spaces, different casing, etc.
+     *
+     * @param string $name1
+     * @param string $name2
+     * @return bool
+     */
+    private function namesMatch(string $name1, string $name2): bool
+    {
+        // Exact match after normalization
+        if ($name1 === $name2) {
+            return true;
+        }
+
+        // Check if one name contains the other (handles "John" vs "John Smith")
+        if (str_contains($name1, $name2) || str_contains($name2, $name1)) {
+            return true;
+        }
+
+        // Use similar_text for fuzzy matching (handles typos, slight variations)
+        $similarity = 0;
+        similar_text($name1, $name2, $similarity);
+
+        // If 80% similar, consider it a match
+        return $similarity >= 80;
+    }
+
+    /**
      * Get all conversations for the user.
      *
      * GET /api/inbox
@@ -66,16 +127,22 @@ class InboxController extends Controller
     {
         $user = $request->user();
 
+        // OPTIMIZATION: Use conditional aggregation to reduce 4 queries to 2
+        $conversationStats = Conversation::where('user_id', $user->id)
+            ->selectRaw('COUNT(*) as total')
+            ->selectRaw('SUM(CASE WHEN is_unread = true THEN 1 ELSE 0 END) as unread')
+            ->first();
+
+        $messageStats = LinkedInMessage::where('user_id', $user->id)
+            ->selectRaw('SUM(CASE WHEN is_read = false AND is_from_me = false THEN 1 ELSE 0 END) as total_unread')
+            ->selectRaw("SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END) as pending")
+            ->first();
+
         $stats = [
-            'total_conversations' => Conversation::where('user_id', $user->id)->count(),
-            'unread_conversations' => Conversation::where('user_id', $user->id)->unread()->count(),
-            'total_unread_messages' => LinkedInMessage::where('user_id', $user->id)
-                ->where('is_read', false)
-                ->where('is_from_me', false)
-                ->count(),
-            'pending_messages' => LinkedInMessage::where('user_id', $user->id)
-                ->pending()
-                ->count(),
+            'total_conversations' => (int) ($conversationStats->total ?? 0),
+            'unread_conversations' => (int) ($conversationStats->unread ?? 0),
+            'total_unread_messages' => (int) ($messageStats->total_unread ?? 0),
+            'pending_messages' => (int) ($messageStats->pending ?? 0),
         ];
 
         return response()->json($stats);
@@ -113,21 +180,53 @@ class InboxController extends Controller
             $synced = 0;
             $created = 0;
 
+            // OPTIMIZATION: Bulk fetch existing conversations and prospects to avoid N+1 queries
+            // Normalize all conversation IDs first to prevent duplicates
+            $normalizedConvData = [];
             foreach ($conversationsData as $convData) {
-                // Try to find existing conversation
-                $conversation = Conversation::where('user_id', $user->id)
-                    ->where('linkedin_conversation_id', $convData['linkedin_conversation_id'])
-                    ->first();
+                $normalizedId = $this->normalizeConversationId($convData['linkedin_conversation_id'] ?? '');
+                if (empty($normalizedId)) continue;
+                $convData['linkedin_conversation_id'] = $normalizedId;
+                $normalizedConvData[] = $convData;
+            }
+            $conversationsData = $normalizedConvData;
 
-                // Try to link to prospect by linkedin_id
+            $linkedinConvIds = collect($conversationsData)->pluck('linkedin_conversation_id')->filter()->unique()->toArray();
+            $linkedinProspectIds = collect($conversationsData)->pluck('participant_linkedin_id')->filter()->unique()->toArray();
+
+            // Fetch all existing conversations in one query (keyed by linkedin_conversation_id)
+            $existingConversations = Conversation::where('user_id', $user->id)
+                ->whereIn('linkedin_conversation_id', $linkedinConvIds)
+                ->get()
+                ->keyBy('linkedin_conversation_id');
+
+            // Fetch all matching prospects in one query (keyed by linkedin_id)
+            $existingProspects = !empty($linkedinProspectIds)
+                ? Prospect::where('user_id', $user->id)
+                    ->whereIn('linkedin_id', $linkedinProspectIds)
+                    ->get()
+                    ->keyBy('linkedin_id')
+                : collect();
+
+            foreach ($conversationsData as $convData) {
+                // Use pre-fetched conversation instead of querying
+                $conversation = $existingConversations->get($convData['linkedin_conversation_id']);
+
+                // Fallback: If not found in pre-fetched (possible if DB has non-normalized IDs), query directly
+                if (!$conversation) {
+                    $conversation = Conversation::where('user_id', $user->id)
+                        ->where('linkedin_conversation_id', $convData['linkedin_conversation_id'])
+                        ->first();
+                }
+
+                // Use pre-fetched prospect instead of querying
                 $prospectId = null;
                 if (!empty($convData['participant_linkedin_id'])) {
-                    $prospect = Prospect::where('user_id', $user->id)
-                        ->where('linkedin_id', $convData['participant_linkedin_id'])
-                        ->first();
+                    $prospect = $existingProspects->get($convData['participant_linkedin_id']);
                     $prospectId = $prospect?->id;
                 }
 
+                // Base fields that are always safe to update
                 $conversationFields = [
                     'user_id' => $user->id,
                     'prospect_id' => $prospectId,
@@ -139,22 +238,43 @@ class InboxController extends Controller
                     'participant_headline' => $convData['participant_headline'] ?? null,
                     'last_message_preview' => $convData['last_message_preview'] ?? null,
                     'last_message_at' => $convData['last_message_at'] ?? now(),
-                    'is_unread' => $convData['is_unread'] ?? false,
-                    'unread_count' => $convData['unread_count'] ?? 0,
                     'last_synced_at' => now(),
                 ];
 
                 if ($conversation) {
+                    // IMPORTANT: Do NOT overwrite is_unread/unread_count for existing conversations!
+                    // The user may have read messages in the webapp but not on LinkedIn.
+                    // Unread status is only set by incoming-message endpoint for NEW messages.
                     $conversation->update($conversationFields);
                     $synced++;
                 } else {
-                    $conversation = Conversation::create($conversationFields);
-                    $created++;
+                    // For NEW conversations, use LinkedIn's unread status as initial value
+                    // Handle race condition: another request might create this conversation simultaneously
+                    try {
+                        $conversationFields['is_unread'] = $convData['is_unread'] ?? false;
+                        $conversationFields['unread_count'] = $convData['unread_count'] ?? 0;
+                        $conversation = Conversation::create($conversationFields);
+                        $created++;
+                    } catch (\Illuminate\Database\QueryException $e) {
+                        // Unique constraint violation (PostgreSQL code 23505) - conversation was created by another request
+                        if ($e->getCode() === '23505') {
+                            // Fetch the existing conversation and update it instead
+                            $conversation = Conversation::where('user_id', $user->id)
+                                ->where('linkedin_conversation_id', $convData['linkedin_conversation_id'])
+                                ->first();
+                            if ($conversation) {
+                                $conversation->update($conversationFields);
+                                $synced++;
+                            }
+                        } else {
+                            throw $e; // Re-throw other database errors
+                        }
+                    }
                 }
 
                 // Sync messages if provided
                 if (!empty($convData['messages'])) {
-                    $this->syncMessages($conversation, $convData['messages'], $user->id);
+                    $this->syncMessagesInternal($conversation, $convData['messages'], $user->id);
                 }
             }
 
@@ -484,10 +604,11 @@ class InboxController extends Controller
         ]);
 
         $user = $request->user();
+        $normalizedConvId = $this->normalizeConversationId($request->input('linkedin_conversation_id'));
 
-        // Check if conversation already exists
+        // Check if conversation already exists (using normalized ID)
         $existing = Conversation::where('user_id', $user->id)
-            ->where('linkedin_conversation_id', $request->input('linkedin_conversation_id'))
+            ->where('linkedin_conversation_id', $normalizedConvId)
             ->first();
 
         if ($existing) {
@@ -497,10 +618,10 @@ class InboxController extends Controller
             ]);
         }
 
-        // Create new conversation
+        // Create new conversation with normalized ID
         $conversation = Conversation::create([
             'user_id' => $user->id,
-            'linkedin_conversation_id' => $request->input('linkedin_conversation_id'),
+            'linkedin_conversation_id' => $normalizedConvId,
             'participant_name' => $request->input('participant_name'),
             'participant_profile_url' => $request->input('participant_linkedin_url'),
             'last_message_at' => now(),
@@ -541,44 +662,103 @@ class InboxController extends Controller
 
     /**
      * Internal helper to sync messages for a conversation.
+     * Uses multiple strategies to prevent duplicates.
      */
     private function syncMessagesInternal(Conversation $conversation, array $messagesData, int $userId): array
     {
         $synced = 0;
         $created = 0;
+        $skipped = 0;
+
+        // Pre-fetch existing messages for this conversation to avoid N+1 queries
+        $existingByLinkedInId = LinkedInMessage::where('conversation_id', $conversation->id)
+            ->whereNotNull('linkedin_message_id')
+            ->pluck('id', 'linkedin_message_id')
+            ->toArray();
+
+        // Also get recent messages for content-based dedup (last 24 hours)
+        $recentMessages = LinkedInMessage::where('conversation_id', $conversation->id)
+            ->where('created_at', '>=', now()->subHours(24))
+            ->get(['id', 'content', 'is_from_me', 'sent_at'])
+            ->toArray();
+
+        // Get participant name for reliable is_from_me detection
+        $participantName = strtolower(trim($conversation->participant_name ?? ''));
 
         foreach ($messagesData as $msgData) {
-            // Try to find existing message by linkedin_message_id
+            $content = trim($msgData['content'] ?? '');
+            if (empty($content)) {
+                $skipped++;
+                continue;
+            }
+
+            $linkedinMsgId = $msgData['linkedin_message_id'] ?? null;
+            $sentAt = $msgData['sent_at'] ?? null;
+            $senderName = strtolower(trim($msgData['sender_name'] ?? ''));
+
+            // Reliable is_from_me detection:
+            // Compare sender_name with participant_name (the other person)
+            // If sender matches participant → message is FROM them (is_from_me = false)
+            // If sender doesn't match → message is FROM me (is_from_me = true)
+            $isFromMe = $msgData['is_from_me'] ?? false; // Default from extension
+
+            if (!empty($senderName) && !empty($participantName)) {
+                // Use string similarity to handle slight variations in names
+                $isFromMe = !$this->namesMatch($senderName, $participantName);
+            }
+
+            // Strategy 1: Check by LinkedIn message ID (most reliable)
             $existing = null;
-            if (!empty($msgData['linkedin_message_id'])) {
-                $existing = LinkedInMessage::where('conversation_id', $conversation->id)
-                    ->where('linkedin_message_id', $msgData['linkedin_message_id'])
-                    ->first();
+            if (!empty($linkedinMsgId) && isset($existingByLinkedInId[$linkedinMsgId])) {
+                $existing = LinkedInMessage::find($existingByLinkedInId[$linkedinMsgId]);
+            }
+
+            // Strategy 2: Check by content + sender + approximate time (fallback for missing IDs)
+            if (!$existing) {
+                $contentHash = md5($content . ($isFromMe ? '1' : '0'));
+                foreach ($recentMessages as $recent) {
+                    $recentHash = md5(trim($recent['content']) . ($recent['is_from_me'] ? '1' : '0'));
+                    if ($contentHash === $recentHash) {
+                        // Same content and sender within 24 hours = likely duplicate
+                        $existing = LinkedInMessage::find($recent['id']);
+                        break;
+                    }
+                }
             }
 
             $messageFields = [
                 'conversation_id' => $conversation->id,
                 'user_id' => $userId,
-                'linkedin_message_id' => $msgData['linkedin_message_id'] ?? null,
-                'content' => $msgData['content'],
-                'is_from_me' => $msgData['is_from_me'] ?? false,
+                'linkedin_message_id' => $linkedinMsgId,
+                'content' => $content,
+                'is_from_me' => $isFromMe,
                 'sender_name' => $msgData['sender_name'] ?? null,
                 'sender_linkedin_id' => $msgData['sender_linkedin_id'] ?? null,
-                'sent_at' => $msgData['sent_at'] ?? now(),
-                'is_read' => $msgData['is_from_me'] ?? true, // Messages from me are always read
+                'sent_at' => $sentAt ?? now(),
+                'is_read' => $isFromMe, // Messages from me are always read
                 'status' => LinkedInMessage::STATUS_SYNCED,
             ];
 
             if ($existing) {
-                $existing->update($messageFields);
+                // Only update if we have new info (e.g., linkedin_message_id was missing)
+                if (empty($existing->linkedin_message_id) && !empty($linkedinMsgId)) {
+                    $existing->update(['linkedin_message_id' => $linkedinMsgId]);
+                }
                 $synced++;
             } else {
-                LinkedInMessage::create($messageFields);
+                $newMessage = LinkedInMessage::create($messageFields);
+                // Add to recent messages for subsequent dedup in same batch
+                $recentMessages[] = [
+                    'id' => $newMessage->id,
+                    'content' => $content,
+                    'is_from_me' => $isFromMe,
+                    'sent_at' => $sentAt,
+                ];
                 $created++;
             }
         }
 
-        return ['synced' => $synced, 'created' => $created];
+        return ['synced' => $synced, 'created' => $created, 'skipped' => $skipped];
     }
 
     /**
@@ -600,10 +780,10 @@ class InboxController extends Controller
         ]);
 
         $user = $request->user();
-        $linkedinConversationId = $request->input('linkedin_conversation_id');
+        $linkedinConversationId = $this->normalizeConversationId($request->input('linkedin_conversation_id'));
         $messageData = $request->input('message');
 
-        // Find the conversation
+        // Find the conversation using normalized ID
         $conversation = Conversation::where('linkedin_conversation_id', $linkedinConversationId)
             ->where('user_id', $user->id)
             ->first();
@@ -648,26 +828,30 @@ class InboxController extends Controller
             ]);
         }
 
+        $isFromMe = $messageData['is_from_me'] ?? false;
+
         // Create the new message
         $message = LinkedInMessage::create([
             'conversation_id' => $conversation->id,
             'user_id' => $user->id,
             'linkedin_message_id' => $linkedinMessageId,
             'content' => $messageData['content'],
-            'is_from_me' => $messageData['is_from_me'] ?? false,
+            'is_from_me' => $isFromMe,
             'sender_name' => $messageData['sender_name'] ?? null,
             'sender_linkedin_id' => $messageData['sender_linkedin_id'] ?? null,
             'sent_at' => $messageData['sent_at'] ?? now(),
-            'is_read' => false,
+            'is_read' => $isFromMe, // Messages from me are already read
             'status' => LinkedInMessage::STATUS_SYNCED,
         ]);
 
         // Update conversation's last message timestamp
-        $conversation->update([
-            'last_message_at' => $message->sent_at,
-            'is_unread' => true,
-            'unread_count' => $conversation->unread_count + 1,
-        ]);
+        // Only mark as unread if the message is NOT from the user
+        $updateData = ['last_message_at' => $message->sent_at];
+        if (!$isFromMe) {
+            $updateData['is_unread'] = true;
+            $updateData['unread_count'] = $conversation->unread_count + 1;
+        }
+        $conversation->update($updateData);
 
         return response()->json([
             'message' => 'Incoming message received.',

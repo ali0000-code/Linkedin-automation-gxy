@@ -68,6 +68,9 @@ const ProspectTable = ({ prospects = [], selectedProspects = [], onToggleProspec
                 Prospect
               </th>
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                Email
+              </th>
+              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                 Company
               </th>
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
@@ -133,6 +136,20 @@ const ProspectTable = ({ prospects = [], selectedProspects = [], onToggleProspec
                       )}
                     </div>
                   </div>
+                </td>
+
+                {/* Email */}
+                <td className="px-6 py-4 whitespace-nowrap">
+                  {prospect.email ? (
+                    <a
+                      href={`mailto:${prospect.email}`}
+                      className="text-sm text-linkedin hover:underline"
+                    >
+                      {prospect.email}
+                    </a>
+                  ) : (
+                    <span className="text-sm text-gray-400">-</span>
+                  )}
                 </td>
 
                 {/* Company */}

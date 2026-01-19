@@ -489,6 +489,7 @@ const EditEmailModal = ({
 // Create Email Modal Component
 const CreateEmailModal = ({
   templates,
+  prospectsWithEmail = [],
   onSave,
   onClose,
   isLoading,
@@ -497,16 +498,46 @@ const CreateEmailModal = ({
   const [subject, setSubject] = useState('');
   const [body, setBody] = useState('');
   const [selectedTemplateId, setSelectedTemplateId] = useState('');
+  const [selectedProspect, setSelectedProspect] = useState(null);
 
   const emailTemplates = Array.isArray(templates) ? templates.filter(t => t.type === 'email') : [];
 
-  // Apply template
+  // Handle prospect selection
+  const handleProspectSelect = (e) => {
+    const prospectId = e.target.value;
+    if (prospectId) {
+      const prospect = prospectsWithEmail.find(p => p.id === parseInt(prospectId));
+      if (prospect) {
+        setSelectedProspect(prospect);
+        setToEmail(prospect.email);
+      }
+    } else {
+      setSelectedProspect(null);
+      setToEmail('');
+    }
+  };
+
+  // Apply template with personalization
   const handleApplyTemplate = () => {
     if (!selectedTemplateId) return;
     const template = emailTemplates.find(t => t.id === parseInt(selectedTemplateId));
     if (template) {
       setSubject(template.subject || '');
-      setBody(template.content || '');
+      let content = template.content || '';
+      // Personalize if we have a selected prospect
+      if (selectedProspect) {
+        const firstName = selectedProspect.full_name?.split(' ')[0] || '';
+        const lastName = selectedProspect.full_name?.split(' ').slice(1).join(' ') || '';
+        content = content
+          .replace(/{firstName}/g, firstName)
+          .replace(/{lastName}/g, lastName)
+          .replace(/{fullName}/g, selectedProspect.full_name || '')
+          .replace(/{email}/g, selectedProspect.email || '')
+          .replace(/{company}/g, selectedProspect.company || '')
+          .replace(/{headline}/g, selectedProspect.headline || '')
+          .replace(/{location}/g, selectedProspect.location || '');
+      }
+      setBody(content);
     }
   };
 
@@ -536,6 +567,26 @@ const CreateEmailModal = ({
 
         {/* Body */}
         <div className="p-6 overflow-y-auto max-h-[55vh] space-y-4">
+          {/* Select from Prospects */}
+          {prospectsWithEmail.length > 0 && (
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Select Prospect
+              </label>
+              <select
+                onChange={handleProspectSelect}
+                className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-linkedin focus:border-transparent"
+              >
+                <option value="">-- Select a prospect or enter email manually --</option>
+                {prospectsWithEmail.map((prospect) => (
+                  <option key={prospect.id} value={prospect.id}>
+                    {prospect.full_name} ({prospect.email})
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+
           {/* Recipient Email */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -635,6 +686,20 @@ const Mail = () => {
   const [selectedIds, setSelectedIds] = useState([]);
   const [editingEmail, setEditingEmail] = useState(null);
   const [showCreateModal, setShowCreateModal] = useState(false);
+  const [prospectsWithEmail, setProspectsWithEmail] = useState([]);
+
+  // Fetch prospects with email when create modal opens
+  useEffect(() => {
+    if (showCreateModal) {
+      import('../services/prospect.service').then(({ prospectService }) => {
+        prospectService.getProspectsWithEmail().then(prospects => {
+          setProspectsWithEmail(prospects);
+        }).catch(err => {
+          console.error('Error fetching prospects with email:', err);
+        });
+      });
+    }
+  }, [showCreateModal]);
 
   const { data: mailsData, isLoading, error } = useMails({
     status: status || undefined,
@@ -1282,6 +1347,7 @@ const Mail = () => {
         {showCreateModal && (
           <CreateEmailModal
             templates={templatesData?.templates || []}
+            prospectsWithEmail={prospectsWithEmail}
             onSave={handleCreateEmail}
             onClose={() => setShowCreateModal(false)}
             isLoading={createEmailMutation.isLoading}

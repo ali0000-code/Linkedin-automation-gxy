@@ -106,7 +106,7 @@ const Sidebar = () => {
   const unreadCount = stats?.unread_conversations || 0;
 
   const menuItems = [
-    { name: 'Home', path: '/dashboard', icon: HomeIcon, comingSoon: true },
+    { name: 'Home', path: '/dashboard', icon: HomeIcon, comingSoon: false },
     { name: 'Prospects', path: '/prospects', icon: UsersIcon, comingSoon: false },
     {
       name: 'Campaign',

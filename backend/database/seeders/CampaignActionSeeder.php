@@ -101,6 +101,81 @@ class CampaignActionSeeder extends Seeder
                 'is_active' => true,
                 'order' => 5,
             ],
+            // Combo Actions - Named by their action sequence
+            [
+                'key' => 'connect_message',
+                'name' => 'Connect + Message',
+                'description' => 'Sends connection request if not connected, or message if already connected. Best for universal outreach.',
+                'icon' => 'zap',
+                'requires_template' => true,
+                'requires_connection' => false,
+                'config' => [
+                    'min_delay' => 3,
+                    'max_delay' => 7,
+                    'is_conditional' => true,
+                    'conditions' => [
+                        'if_connected' => [
+                            'action' => 'message',
+                            'template_type' => 'message',
+                        ],
+                        'if_not_connected' => [
+                            'action' => 'invite',
+                            'template_type' => 'invitation',
+                            'message_max_length' => 300,
+                        ],
+                    ],
+                    'requires_two_templates' => true,
+                ],
+                'is_active' => true,
+                'order' => 6,
+            ],
+            [
+                'key' => 'visit_follow_connect',
+                'name' => 'Visit + Follow + Connect',
+                'description' => 'Warms up prospects: Visit profile → Follow → Send connection request. Higher acceptance rates.',
+                'icon' => 'heart',
+                'requires_template' => true,
+                'requires_connection' => false,
+                'config' => [
+                    'min_delay' => 5,
+                    'max_delay' => 10,
+                    'is_combo' => true,
+                    'steps' => ['visit', 'follow', 'invite'],
+                    'template_type' => 'invitation',
+                    'message_max_length' => 300,
+                ],
+                'is_active' => true,
+                'order' => 7,
+            ],
+            [
+                'key' => 'email_message',
+                'name' => 'Email + Message',
+                'description' => 'Sends email if available, falls back to LinkedIn message if no email found.',
+                'icon' => 'mail',
+                'requires_template' => true,
+                'requires_connection' => false,
+                'config' => [
+                    'min_delay' => 3,
+                    'max_delay' => 7,
+                    'is_conditional' => true,
+                    'conditions' => [
+                        'if_has_email' => [
+                            'action' => 'email',
+                            'template_type' => 'email',
+                        ],
+                        'if_no_email' => [
+                            'action' => 'extract_then_email',
+                        ],
+                        'fallback' => [
+                            'action' => 'message',
+                            'template_type' => 'message',
+                        ],
+                    ],
+                    'requires_two_templates' => true,
+                ],
+                'is_active' => true,
+                'order' => 8,
+            ],
         ];
 
         foreach ($actions as $action) {
@@ -111,10 +186,15 @@ class CampaignActionSeeder extends Seeder
         }
 
         $this->command->info('✅ Campaign actions seeded successfully!');
+        $this->command->info('   Basic Actions:');
         $this->command->info('   - Visit Profile');
         $this->command->info('   - Send Connection Request');
         $this->command->info('   - Send Message');
         $this->command->info('   - Follow Profile');
         $this->command->info('   - Email');
+        $this->command->info('   Combo Actions:');
+        $this->command->info('   - Connect + Message');
+        $this->command->info('   - Visit + Follow + Connect');
+        $this->command->info('   - Email + Message');
     }
 }

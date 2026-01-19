@@ -501,6 +501,48 @@ const Inbox = () => {
     return () => clearInterval(pollInterval);
   }, [selectedConversationId, queryClient]);
 
+  // Track which conversations we've already synced messages for (to avoid repeated syncs)
+  const syncedConversationsRef = useRef(new Set());
+
+  // Auto-sync messages when opening a conversation with no messages
+  useEffect(() => {
+    // Skip if no conversation selected or still loading
+    if (!selectedConversation || isLoadingConversation) return;
+
+    // Skip if not connected to extension
+    if (!isConnected) return;
+
+    // Skip if we already synced this conversation
+    if (syncedConversationsRef.current.has(selectedConversation.id)) return;
+
+    // Skip if conversation already has messages
+    if (messages.length > 0) {
+      // Mark as synced since it has messages
+      syncedConversationsRef.current.add(selectedConversation.id);
+      return;
+    }
+
+    // Auto-sync messages for this conversation
+    const linkedinConvId = selectedConversation.linkedin_conversation_id;
+    const backendConvId = selectedConversation.id;
+
+    if (linkedinConvId && backendConvId) {
+      console.log('[Inbox] Auto-syncing messages for conversation:', backendConvId);
+      syncedConversationsRef.current.add(selectedConversation.id);
+
+      syncConversationMessages(linkedinConvId, backendConvId)
+        .then((result) => {
+          console.log('[Inbox] Auto-sync result:', result);
+          queryClient.invalidateQueries({ queryKey: ['conversation', backendConvId] });
+        })
+        .catch((error) => {
+          console.error('[Inbox] Auto-sync failed:', error);
+          // Remove from synced set so user can try manual sync
+          syncedConversationsRef.current.delete(selectedConversation.id);
+        });
+    }
+  }, [selectedConversation, isLoadingConversation, isConnected, messages.length, syncConversationMessages, queryClient]);
+
   // Handle conversation selection
   const handleSelectConversation = async (conversation) => {
     setSelectedConversationId(conversation.id);

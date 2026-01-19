@@ -163,7 +163,8 @@ class ExtensionController extends Controller
             ]);
         }
 
-        // Check if campaign is still active
+        // Check if campaign is still active BEFORE marking as in_progress
+        // This prevents race condition where action gets stuck in in_progress state
         if (!$action->campaign || !$action->campaign->isActive()) {
             return response()->json([
                 'success' => true,
@@ -173,8 +174,24 @@ class ExtensionController extends Controller
             ]);
         }
 
-        // Mark as in progress
-        $this->actionQueueService->markInProgress($action);
+        // Mark as in progress (only after confirming campaign is active)
+        // Use atomic update to prevent race conditions with concurrent requests
+        $updated = $this->actionQueueService->markInProgressAtomic($action);
+
+        // If another request already grabbed this action, get the next one
+        if (!$updated) {
+            return response()->json([
+                'success' => true,
+                'has_action' => false,
+                'action' => null,
+                'message' => 'Action was claimed by another request, please retry',
+                'daily_limit' => $dailyLimit,
+                'today_count' => $todayCount,
+            ]);
+        }
+
+        // Refresh the action to get the updated state
+        $action->refresh();
 
         // action_data is already cast to array by Eloquent model
         $actionData = $action->action_data;
@@ -271,11 +288,11 @@ class ExtensionController extends Controller
             $result = $this->actionQueueService->markFailed($action, $error, $retry);
 
             return response()->json([
-                'success' => $result,
-                'message' => $result
-                    ? ($retry && $action->retry_count < 3 ? 'Action will be retried' : 'Action marked as failed')
+                'success' => $result['success'],
+                'message' => $result['success']
+                    ? ($result['retry_scheduled'] ? 'Action will be retried' : 'Action marked as failed')
                     : 'Failed to update action',
-                'retry_scheduled' => $retry && $action->retry_count < 3,
+                'retry_scheduled' => $result['retry_scheduled'],
             ]);
         }
     }
@@ -416,6 +433,7 @@ class ExtensionController extends Controller
     /**
      * Get email extraction results for a campaign.
      * Returns counts of prospects with/without emails after extraction.
+     * OPTIMIZATION: Uses database-level filtering instead of loading all and filtering in PHP.
      *
      * GET /api/extension/campaigns/{id}/extraction-results
      *
@@ -429,7 +447,6 @@ class ExtensionController extends Controller
 
         $campaign = Campaign::where('id', $id)
             ->where('user_id', $user->id)
-            ->with(['campaignProspects.prospect'])
             ->first();
 
         if (!$campaign) {
@@ -439,25 +456,28 @@ class ExtensionController extends Controller
             ], 404);
         }
 
-        $withEmail = [];
-        $withoutEmail = [];
+        // OPTIMIZATION: Query only the fields we need, filter at database level
+        $selectFields = ['prospects.id', 'prospects.full_name', 'prospects.profile_url', 'prospects.linkedin_id', 'prospects.email'];
 
-        foreach ($campaign->campaignProspects as $cp) {
-            $prospect = $cp->prospect;
-            $prospectData = [
-                'id' => $prospect->id,
-                'full_name' => $prospect->full_name,
-                'profile_url' => $prospect->profile_url,
-                'linkedin_id' => $prospect->linkedin_id,
-                'email' => $prospect->email,
-            ];
+        // Get prospects WITH email
+        $withEmail = Prospect::select($selectFields)
+            ->join('campaign_prospects', 'prospects.id', '=', 'campaign_prospects.prospect_id')
+            ->where('campaign_prospects.campaign_id', $campaign->id)
+            ->whereNotNull('prospects.email')
+            ->where('prospects.email', '!=', '')
+            ->get()
+            ->toArray();
 
-            if (!empty($prospect->email)) {
-                $withEmail[] = $prospectData;
-            } else {
-                $withoutEmail[] = $prospectData;
-            }
-        }
+        // Get prospects WITHOUT email
+        $withoutEmail = Prospect::select($selectFields)
+            ->join('campaign_prospects', 'prospects.id', '=', 'campaign_prospects.prospect_id')
+            ->where('campaign_prospects.campaign_id', $campaign->id)
+            ->where(function ($query) {
+                $query->whereNull('prospects.email')
+                    ->orWhere('prospects.email', '=', '');
+            })
+            ->get()
+            ->toArray();
 
         return response()->json([
             'success' => true,

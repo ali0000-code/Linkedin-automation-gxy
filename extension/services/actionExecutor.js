@@ -39,14 +39,14 @@ function getMainProfileActionContainer() {
     return null;
   }
 
-  // Try each container selector
-  const containers = document.querySelectorAll(selectors.PROFILE.ACTION_CONTAINERS.join(', '));
+  // Find profile action container
+  const containers = document.querySelectorAll(selectors.PROFILE.ACTION_CONTAINER);
 
   for (const container of containers) {
     // Validate: container must have at least one action button
     const hasActionButtons = container.querySelector(selectors.PROFILE.ACTION_BUTTON_CHECK);
     if (hasActionButtons) {
-      console.log('[ActionExecutor] Found main profile action container via class selector');
+      console.log('[ActionExecutor] Found main profile action container');
       return container;
     }
   }
@@ -787,6 +787,501 @@ async function executeEmail(action) {
 }
 
 /**
+ * Execute SMART_CONNECT action - conditional logic based on connection status
+ * If already connected: send message
+ * If not connected: send connection request
+ *
+ * @param {object} action - Action data from API with connected_message and invite_message
+ * @returns {Promise<{success: boolean, message: string, navigating?: boolean, executed_action?: string}>}
+ */
+async function executeSmartConnect(action) {
+  console.log('[ActionExecutor] Executing SMART_CONNECT action for:', action.prospect.full_name);
+
+  const selectors = window.LINKEDIN_SELECTORS;
+  if (!selectors) {
+    return { success: false, message: 'Selectors not loaded' };
+  }
+
+  try {
+    const profileUrl = action.prospect.profile_url;
+
+    // Navigate to profile if not already there
+    if (!window.location.href.includes(profileUrl.replace('https://www.linkedin.com', ''))) {
+      console.log('[ActionExecutor] Navigating to profile for connect_message:', profileUrl);
+      window.location.href = profileUrl;
+      return { success: true, message: 'Navigating to profile', navigating: true };
+    }
+
+    // Wait for page to load
+    await sleep(2000);
+
+    // Get main profile action container
+    const actionContainer = getMainProfileActionContainer();
+    if (!actionContainer) {
+      return { success: false, message: 'Could not find profile action buttons' };
+    }
+
+    await sleep(500);
+
+    // Check connection status by looking for Message button (only visible for 1st degree connections)
+    const messageButton = actionContainer.querySelector(selectors.PROFILE.MESSAGE_BUTTON);
+    const isConnected = messageButton && messageButton.offsetParent !== null; // Check if visible
+
+    console.log('[ActionExecutor] Smart Connect - Is connected:', isConnected);
+
+    if (isConnected) {
+      // User is connected - send message
+      console.log('[ActionExecutor] Smart Connect: User is connected, sending message...');
+
+      const messageContent = action.action_data?.connected_message;
+      if (!messageContent || messageContent.trim() === '') {
+        console.warn('[ActionExecutor] No connected_message template provided');
+        return { success: true, message: 'Already connected but no message template provided', executed_action: 'none' };
+      }
+
+      // Click Message button
+      messageButton.click();
+      await sleep(3000);
+
+      // Find message textbox
+      const messageTextbox = document.querySelector(selectors.MESSAGE.TEXTBOX);
+      if (!messageTextbox) {
+        return { success: false, message: 'Message compose area did not appear' };
+      }
+
+      // Type and send message
+      messageTextbox.focus();
+      await sleep(500);
+      document.execCommand('insertHTML', false, messageContent);
+      await sleep(500);
+
+      // Send with Ctrl+Enter
+      const ctrlEnterEvent = new KeyboardEvent('keydown', {
+        key: 'Enter',
+        code: 'Enter',
+        keyCode: 13,
+        which: 13,
+        ctrlKey: true,
+        bubbles: true,
+        cancelable: true
+      });
+      messageTextbox.dispatchEvent(ctrlEnterEvent);
+      await sleep(500);
+
+      // Also try plain Enter
+      const enterEvent = new KeyboardEvent('keydown', {
+        key: 'Enter',
+        code: 'Enter',
+        keyCode: 13,
+        which: 13,
+        bubbles: true,
+        cancelable: true
+      });
+      messageTextbox.dispatchEvent(enterEvent);
+      await sleep(500);
+
+      // Try clicking send button
+      const sendButton = document.querySelector(selectors.MESSAGE.SEND_BUTTON);
+      if (sendButton && !sendButton.disabled) {
+        sendButton.click();
+        await sleep(500);
+      }
+
+      console.log('[ActionExecutor] Smart Connect: Message sent successfully');
+      return { success: true, message: 'Message sent (already connected)', executed_action: 'message' };
+
+    } else {
+      // User is not connected - send invite
+      console.log('[ActionExecutor] Smart Connect: User is not connected, sending invite...');
+
+      const inviteMessage = action.action_data?.invite_message;
+
+      // Check if already pending
+      const pendingButton = actionContainer.querySelector(selectors.PROFILE.PENDING_BUTTON);
+      if (pendingButton) {
+        console.log('[ActionExecutor] Connection request already pending');
+        return { success: true, message: 'Connection request already pending', executed_action: 'none' };
+      }
+
+      // Find Connect button
+      let connectButton = actionContainer.querySelector(selectors.PROFILE.CONNECT_BUTTON);
+
+      // If Connect not visible, check More menu
+      if (!connectButton) {
+        let moreButton = actionContainer.querySelector(selectors.PROFILE.MORE_BUTTON);
+        if (!moreButton) {
+          const buttons = actionContainer.querySelectorAll('button');
+          for (const btn of buttons) {
+            if (btn.textContent.trim() === 'More') {
+              moreButton = btn;
+              break;
+            }
+          }
+        }
+
+        if (!moreButton) {
+          return { success: false, message: 'Could not find Connect or More button' };
+        }
+
+        moreButton.click();
+        await sleep(2000);
+        connectButton = document.querySelector(selectors.PROFILE.DROPDOWN_CONNECT);
+
+        if (!connectButton) {
+          return { success: false, message: 'Connect option not found in More menu' };
+        }
+      }
+
+      // Click Connect button
+      connectButton.click();
+      await sleep(3000);
+
+      // Check for Add note option
+      const addNoteButton = document.querySelector(selectors.CONNECTION_MODAL.ADD_NOTE_BUTTON);
+      const sendWithoutNoteButton = document.querySelector(selectors.CONNECTION_MODAL.SEND_WITHOUT_NOTE);
+
+      if (!addNoteButton && !sendWithoutNoteButton) {
+        const dismissButton = document.querySelector(selectors.CONNECTION_MODAL.DISMISS_BUTTON);
+        if (dismissButton) dismissButton.click();
+        return { success: false, message: 'LinkedIn connection limit may have been reached' };
+      }
+
+      // If we have a message, add a note
+      if (inviteMessage && inviteMessage.trim() !== '' && addNoteButton) {
+        addNoteButton.click();
+        await sleep(2000);
+
+        const noteTextarea = document.querySelector(selectors.CONNECTION_MODAL.NOTE_TEXTAREA);
+        if (noteTextarea) {
+          noteTextarea.focus();
+          noteTextarea.value = inviteMessage;
+          noteTextarea.dispatchEvent(new Event('input', { bubbles: true }));
+          await sleep(500);
+        }
+      }
+
+      // Send the request
+      const sendButton = document.querySelector(selectors.CONNECTION_MODAL.SEND_BUTTON);
+      if (sendButton && !sendButton.disabled) {
+        sendButton.click();
+        await sleep(1000);
+        console.log('[ActionExecutor] Smart Connect: Connection request sent with note');
+        return { success: true, message: 'Connection request sent', executed_action: 'invite' };
+      } else if (sendWithoutNoteButton) {
+        sendWithoutNoteButton.click();
+        await sleep(1000);
+        console.log('[ActionExecutor] Smart Connect: Connection request sent without note');
+        return { success: true, message: 'Connection request sent (no note)', executed_action: 'invite' };
+      }
+
+      return { success: false, message: 'Could not find send button' };
+    }
+
+  } catch (error) {
+    console.error('[ActionExecutor] Smart Connect failed:', error);
+    return { success: false, message: error.message };
+  }
+}
+
+/**
+ * Execute WARM_CONNECT action - combo: Visit → Follow → Connect
+ * Warms up the prospect before sending connection request
+ *
+ * @param {object} action - Action data from API
+ * @returns {Promise<{success: boolean, message: string, navigating?: boolean}>}
+ */
+async function executeWarmConnect(action) {
+  console.log('[ActionExecutor] Executing WARM_CONNECT action for:', action.prospect.full_name);
+
+  const selectors = window.LINKEDIN_SELECTORS;
+  if (!selectors) {
+    return { success: false, message: 'Selectors not loaded' };
+  }
+
+  try {
+    const profileUrl = action.prospect.profile_url;
+
+    // Navigate to profile if not already there
+    if (!window.location.href.includes(profileUrl.replace('https://www.linkedin.com', ''))) {
+      console.log('[ActionExecutor] Navigating to profile for visit_follow_connect:', profileUrl);
+      window.location.href = profileUrl;
+      return { success: true, message: 'Navigating to profile', navigating: true };
+    }
+
+    // Wait for page to load
+    await sleep(2000);
+
+    // Get main profile action container
+    const actionContainer = getMainProfileActionContainer();
+    if (!actionContainer) {
+      return { success: false, message: 'Could not find profile action buttons' };
+    }
+
+    // Step 1: Visit (just being on the page counts)
+    console.log('[ActionExecutor] Warm Connect Step 1: Visiting profile...');
+    await sleep(getRandomDelay(2000, 4000));
+
+    // Step 2: Follow
+    console.log('[ActionExecutor] Warm Connect Step 2: Following profile...');
+    const followButton = actionContainer.querySelector(selectors.PROFILE.FOLLOW_BUTTON);
+    if (followButton && !followButton.textContent.includes('Following')) {
+      followButton.click();
+      await sleep(1500);
+      console.log('[ActionExecutor] Followed profile');
+    } else {
+      console.log('[ActionExecutor] Already following or follow button not found');
+    }
+
+    await sleep(getRandomDelay(1000, 2000));
+
+    // Step 3: Connect
+    console.log('[ActionExecutor] Warm Connect Step 3: Sending connection request...');
+
+    // Check if already pending
+    const pendingButton = actionContainer.querySelector(selectors.PROFILE.PENDING_BUTTON);
+    if (pendingButton) {
+      return { success: true, message: 'Visited, followed. Connection already pending.' };
+    }
+
+    // Check if already connected
+    const messageButton = actionContainer.querySelector(selectors.PROFILE.MESSAGE_BUTTON);
+    if (messageButton && messageButton.offsetParent !== null) {
+      return { success: true, message: 'Visited, followed. Already connected.' };
+    }
+
+    // Find Connect button
+    let connectButton = actionContainer.querySelector(selectors.PROFILE.CONNECT_BUTTON);
+
+    if (!connectButton) {
+      let moreButton = actionContainer.querySelector(selectors.PROFILE.MORE_BUTTON);
+      if (!moreButton) {
+        const buttons = actionContainer.querySelectorAll('button');
+        for (const btn of buttons) {
+          if (btn.textContent.trim() === 'More') {
+            moreButton = btn;
+            break;
+          }
+        }
+      }
+
+      if (moreButton) {
+        moreButton.click();
+        await sleep(2000);
+        connectButton = document.querySelector(selectors.PROFILE.DROPDOWN_CONNECT);
+      }
+    }
+
+    if (!connectButton) {
+      return { success: true, message: 'Visited and followed. Connect button not available.' };
+    }
+
+    // Click Connect button
+    connectButton.click();
+    await sleep(3000);
+
+    // Handle connection modal
+    const addNoteButton = document.querySelector(selectors.CONNECTION_MODAL.ADD_NOTE_BUTTON);
+    const sendWithoutNoteButton = document.querySelector(selectors.CONNECTION_MODAL.SEND_WITHOUT_NOTE);
+
+    if (!addNoteButton && !sendWithoutNoteButton) {
+      const dismissButton = document.querySelector(selectors.CONNECTION_MODAL.DISMISS_BUTTON);
+      if (dismissButton) dismissButton.click();
+      return { success: false, message: 'LinkedIn connection limit may have been reached' };
+    }
+
+    const inviteMessage = action.action_data?.invite_message;
+
+    if (inviteMessage && inviteMessage.trim() !== '' && addNoteButton) {
+      addNoteButton.click();
+      await sleep(2000);
+
+      const noteTextarea = document.querySelector(selectors.CONNECTION_MODAL.NOTE_TEXTAREA);
+      if (noteTextarea) {
+        noteTextarea.focus();
+        noteTextarea.value = inviteMessage;
+        noteTextarea.dispatchEvent(new Event('input', { bubbles: true }));
+        await sleep(500);
+      }
+    }
+
+    const sendButton = document.querySelector(selectors.CONNECTION_MODAL.SEND_BUTTON);
+    if (sendButton && !sendButton.disabled) {
+      sendButton.click();
+      await sleep(1000);
+      return { success: true, message: 'Visited, followed, and connection request sent!' };
+    } else if (sendWithoutNoteButton) {
+      sendWithoutNoteButton.click();
+      await sleep(1000);
+      return { success: true, message: 'Visited, followed, and connection request sent (no note)' };
+    }
+
+    return { success: false, message: 'Could not complete connection request' };
+
+  } catch (error) {
+    console.error('[ActionExecutor] Warm Connect failed:', error);
+    return { success: false, message: error.message };
+  }
+}
+
+/**
+ * Execute SMART_EMAIL action - Email if available, extract if not, message as fallback
+ *
+ * @param {object} action - Action data from API
+ * @returns {Promise<{success: boolean, message: string, executed_action?: string}>}
+ */
+async function executeSmartEmail(action) {
+  console.log('[ActionExecutor] Executing SMART_EMAIL action for:', action.prospect.full_name);
+
+  const selectors = window.LINKEDIN_SELECTORS;
+  if (!selectors) {
+    return { success: false, message: 'Selectors not loaded' };
+  }
+
+  try {
+    const profileUrl = action.prospect.profile_url;
+    const prospectEmail = action.action_data?.prospect_email;
+
+    // Navigate to profile if not already there
+    if (!window.location.href.includes(profileUrl.replace('https://www.linkedin.com', ''))) {
+      console.log('[ActionExecutor] Navigating to profile for email_message:', profileUrl);
+      window.location.href = profileUrl;
+      return { success: true, message: 'Navigating to profile', navigating: true };
+    }
+
+    await sleep(2000);
+
+    // Check if we already have the prospect's email
+    if (prospectEmail && prospectEmail.includes('@')) {
+      console.log('[ActionExecutor] Smart Email: Prospect has email, sending email...');
+
+      // TODO: Integrate with email sending service
+      // For now, report success with the email to send
+      return {
+        success: true,
+        message: `Email ready to send to ${prospectEmail}`,
+        executed_action: 'email',
+        email: prospectEmail,
+        subject: action.action_data?.email_subject,
+        body: action.action_data?.email_body
+      };
+    }
+
+    // No email - try to extract from LinkedIn profile
+    console.log('[ActionExecutor] Smart Email: No email, attempting to extract...');
+
+    // Click Contact Info
+    const contactInfoLink = document.querySelector(selectors.PROFILE.CONTACT_INFO_LINK);
+    if (!contactInfoLink) {
+      console.log('[ActionExecutor] Contact info link not found, falling back to message');
+      return await sendFallbackMessage(action);
+    }
+
+    contactInfoLink.click();
+    await sleep(2000);
+
+    // Look for email in Contact Info modal
+    const emailSection = document.querySelector(selectors.CONTACT_INFO.EMAIL_SECTION);
+    let extractedEmail = null;
+
+    if (emailSection) {
+      const emailLink = emailSection.querySelector('a[href^="mailto:"]');
+      if (emailLink) {
+        extractedEmail = emailLink.href.replace('mailto:', '').trim();
+      }
+    }
+
+    // Close the modal
+    const closeButton = document.querySelector(selectors.CONTACT_INFO.CLOSE_BUTTON);
+    if (closeButton) {
+      closeButton.click();
+      await sleep(500);
+    }
+
+    if (extractedEmail && extractedEmail.includes('@')) {
+      console.log('[ActionExecutor] Smart Email: Extracted email:', extractedEmail);
+
+      // Report email found - backend should update prospect and send email
+      return {
+        success: true,
+        message: `Extracted email: ${extractedEmail}`,
+        executed_action: 'extract_email',
+        email: extractedEmail,
+        subject: action.action_data?.email_subject,
+        body: action.action_data?.email_body
+      };
+    }
+
+    // No email found - fall back to LinkedIn message
+    console.log('[ActionExecutor] Smart Email: No email found, falling back to LinkedIn message');
+    return await sendFallbackMessage(action);
+
+  } catch (error) {
+    console.error('[ActionExecutor] Smart Email failed:', error);
+    return { success: false, message: error.message };
+  }
+}
+
+/**
+ * Helper: Send fallback LinkedIn message for email_message
+ */
+async function sendFallbackMessage(action) {
+  const selectors = window.LINKEDIN_SELECTORS;
+  const fallbackMessage = action.action_data?.fallback_message;
+
+  if (!fallbackMessage) {
+    return { success: true, message: 'No email found and no fallback message configured', executed_action: 'none' };
+  }
+
+  // Get main profile action container
+  const actionContainer = getMainProfileActionContainer();
+  if (!actionContainer) {
+    return { success: false, message: 'Could not find profile action buttons' };
+  }
+
+  // Check if connected (Message button visible)
+  const messageButton = actionContainer.querySelector(selectors.PROFILE.MESSAGE_BUTTON);
+  if (!messageButton || messageButton.offsetParent === null) {
+    return { success: true, message: 'No email found. Not connected, cannot send message.', executed_action: 'none' };
+  }
+
+  // Send message
+  messageButton.click();
+  await sleep(3000);
+
+  const messageTextbox = document.querySelector(selectors.MESSAGE.TEXTBOX);
+  if (!messageTextbox) {
+    return { success: false, message: 'Message compose area did not appear' };
+  }
+
+  messageTextbox.focus();
+  await sleep(500);
+  document.execCommand('insertHTML', false, fallbackMessage);
+  await sleep(500);
+
+  // Send with Ctrl+Enter
+  const ctrlEnterEvent = new KeyboardEvent('keydown', {
+    key: 'Enter',
+    code: 'Enter',
+    keyCode: 13,
+    which: 13,
+    ctrlKey: true,
+    bubbles: true,
+    cancelable: true
+  });
+  messageTextbox.dispatchEvent(ctrlEnterEvent);
+  await sleep(500);
+
+  // Try clicking send button
+  const sendButton = document.querySelector(selectors.MESSAGE.SEND_BUTTON);
+  if (sendButton && !sendButton.disabled) {
+    sendButton.click();
+    await sleep(500);
+  }
+
+  return { success: true, message: 'No email found, sent LinkedIn message instead', executed_action: 'message' };
+}
+
+/**
  * Main action executor - routes to appropriate handler
  * @param {object} action - Action data from API
  * @returns {Promise<{success: boolean, message: string, navigating?: boolean}>}
@@ -810,6 +1305,15 @@ async function executeAction(action) {
     case 'email':
       return await executeEmail(action);
 
+    case 'connect_message':
+      return await executeSmartConnect(action);
+
+    case 'visit_follow_connect':
+      return await executeWarmConnect(action);
+
+    case 'email_message':
+      return await executeSmartEmail(action);
+
     default:
       return {
         success: false,
@@ -827,6 +1331,9 @@ if (typeof window !== 'undefined') {
     executeMessage,
     executeFollow,
     executeEmail,
+    executeSmartConnect,
+    executeWarmConnect,
+    executeSmartEmail,
     getCurrentUserProfileUrl,
     isProfilePage,
     getMainProfileActionContainer,

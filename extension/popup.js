@@ -811,16 +811,41 @@ async function handleSaveEmailClick() {
       throw new Error('Could not extract LinkedIn ID from URL');
     }
 
-    // Call API to update prospect email
-    const result = await updateProspectEmail(linkedinId, currentExtractedEmail);
+    // Get profile name from the UI
+    const profileName = emailProfileName?.textContent || 'Unknown';
 
-    if (result.success) {
-      showEmailStatus('Email saved successfully!', 'success');
+    // First try to update existing prospect
+    try {
+      const result = await window.ExtensionAPI.updateProspectEmail(linkedinId, currentExtractedEmail);
+
+      if (result.success) {
+        showEmailStatus('Email saved successfully!', 'success');
+        saveEmailBtn.textContent = 'Saved ✓';
+        saveEmailBtn.classList.remove('btn-success');
+        saveEmailBtn.classList.add('btn-secondary');
+        return;
+      }
+    } catch (updateError) {
+      console.log('[Popup] Prospect not found, creating new one...', updateError.message);
+    }
+
+    // Prospect doesn't exist, create a new one with the email
+    const newProspect = {
+      full_name: profileName,
+      profile_url: currentProfileUrl,
+      linkedin_id: linkedinId,
+      email: currentExtractedEmail
+    };
+
+    const importResult = await window.ExtensionAPI.bulkImportProspects([newProspect]);
+
+    if (importResult.success || importResult.created > 0) {
+      showEmailStatus('Prospect created with email!', 'success');
       saveEmailBtn.textContent = 'Saved ✓';
       saveEmailBtn.classList.remove('btn-success');
       saveEmailBtn.classList.add('btn-secondary');
     } else {
-      throw new Error(result.message || 'Failed to save email');
+      throw new Error(importResult.message || 'Failed to create prospect');
     }
 
   } catch (error) {

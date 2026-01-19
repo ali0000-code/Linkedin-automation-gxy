@@ -82,8 +82,10 @@ class LinkedInOAuthController extends Controller
             \Log::info('OAuth callback successful, redirecting with token');
 
             // Redirect to frontend with token as URL fragment (secure, not logged)
+            // URL-encode the token to handle special characters like |
             $frontendUrl = config('app.frontend_url', env('FRONTEND_URL', 'http://localhost:3000'));
-            return redirect("{$frontendUrl}/auth/callback#token={$token}");
+            $encodedToken = urlencode($token);
+            return redirect("{$frontendUrl}/auth/callback#token={$encodedToken}");
 
         } catch (\Exception $e) {
             // Log detailed error for debugging

@@ -84,10 +84,55 @@ function extractProfileFromCard(card, selectors) {
     const headlineEl = card.querySelector(selectors.HEADLINE);
     const locationEl = card.querySelector(selectors.LOCATION);
 
-    // Try to get profile image
-    let imageEl = card.querySelector(selectors.PROFILE_IMAGE);
-    if (!imageEl) {
+    // Try to get profile image with multiple fallbacks
+    let imageEl = null;
+    let profileImageUrl = null;
+
+    // Method 1: Use defined selectors
+    if (selectors.PROFILE_IMAGE) {
+      imageEl = card.querySelector(selectors.PROFILE_IMAGE);
+    }
+    if (!imageEl && selectors.PROFILE_IMAGE_ALT) {
       imageEl = card.querySelector(selectors.PROFILE_IMAGE_ALT);
+    }
+
+    // Method 2: Find img with "profile picture" in alt text
+    if (!imageEl) {
+      imageEl = card.querySelector('img[alt*="profile picture"]');
+    }
+
+    // Method 3: Find img by matching the person's name in alt
+    if (!imageEl && fullName) {
+      const firstName = fullName.split(' ')[0];
+      imageEl = card.querySelector(`img[alt^="${firstName}"]`) ||
+                card.querySelector(`img[alt*="${fullName}"]`);
+    }
+
+    // Method 4: Find img using data-view-name attribute (LinkedIn's new UI)
+    if (!imageEl) {
+      imageEl = card.querySelector('figure[data-view-name="image"] img');
+    }
+
+    // Method 5: Find img by LinkedIn CDN URL pattern
+    if (!imageEl) {
+      imageEl = card.querySelector('img[src*="profile-displayphoto"]') ||
+                card.querySelector('img[src*="media.licdn.com/dms/image"]');
+    }
+
+    // Method 6: Find any img in common card containers
+    if (!imageEl) {
+      imageEl = card.querySelector('.entity-result__image img') ||
+                card.querySelector('.ivm-view-attr__img-wrapper img') ||
+                card.querySelector('img.presence-entity__image');
+    }
+
+    // Get the src, handling lazy-loaded images
+    if (imageEl) {
+      profileImageUrl = imageEl.src || imageEl.getAttribute('data-delayed-url') || imageEl.dataset.src;
+      // Filter out placeholder/ghost images
+      if (profileImageUrl && (profileImageUrl.includes('ghost') || profileImageUrl.includes('placeholder'))) {
+        profileImageUrl = null;
+      }
     }
 
     // Build prospect object
@@ -98,7 +143,7 @@ function extractProfileFromCard(card, selectors) {
       headline: headlineEl ? headlineEl.textContent.trim() : null,
       location: locationEl ? locationEl.textContent.trim() : null,
       company: null, // Will extract from headline if available
-      profile_image_url: imageEl ? imageEl.src : null
+      profile_image_url: profileImageUrl
     };
 
     // Try to parse company from headline
@@ -181,12 +226,45 @@ async function extractProfiles(limit = 100, totalCollected = 0, totalLimit = 100
       const container = link.closest('div');
       const containerText = container?.textContent || '';
 
-      // Extract profile image - match alt attribute to person's name
+      // Extract profile image with multiple fallback methods
       const cardRoot = link.closest('li') || link.closest('div[componentkey]') || container;
+      let profileImage = null;
 
-      // Use alt attribute matching the person's name to get ONLY their profile picture
-      const imgEl = cardRoot?.querySelector(`img[alt="${name}"]`);
-      const profileImage = imgEl?.src || null;
+      if (cardRoot) {
+        // Method 1: Find img inside figure with data-view-name="image" (LinkedIn's new UI)
+        let imgEl = cardRoot.querySelector('figure[data-view-name="image"] img');
+
+        // Method 2: Find img by LinkedIn CDN URL pattern
+        if (!imgEl) {
+          imgEl = cardRoot.querySelector('img[src*="profile-displayphoto"]') ||
+                  cardRoot.querySelector('img[src*="media.licdn.com/dms/image"]');
+        }
+
+        // Method 3: Find img with alt containing "profile picture"
+        if (!imgEl) {
+          imgEl = cardRoot.querySelector('img[alt*="profile picture"]');
+        }
+
+        // Method 4: Find img by matching person's name in alt
+        if (!imgEl) {
+          imgEl = cardRoot.querySelector(`img[alt="${name}"]`) ||
+                  cardRoot.querySelector(`img[alt^="${name.split(' ')[0]}"]`);
+        }
+
+        // Method 5: Find any img in common image containers
+        if (!imgEl) {
+          imgEl = cardRoot.querySelector('.entity-result__image img') ||
+                  cardRoot.querySelector('.ivm-view-attr__img-wrapper img') ||
+                  cardRoot.querySelector('img.presence-entity__image');
+        }
+
+        // Get image URL, filtering out placeholders
+        if (imgEl && imgEl.src) {
+          if (!imgEl.src.includes('ghost') && !imgEl.src.includes('placeholder')) {
+            profileImage = imgEl.src;
+          }
+        }
+      }
 
       const prospect = {
         full_name: name,
@@ -719,16 +797,39 @@ async function openContactInfoOverlay() {
 
   // Wait for modal to appear
   let attempts = 0;
-  const maxAttempts = 10;
+  const maxAttempts = 15;
 
   while (attempts < maxAttempts) {
     await new Promise(resolve => setTimeout(resolve, 500));
 
     const modal = document.querySelector(selectors.MODAL);
     if (modal) {
-      console.log('[Extractor] Contact Info overlay opened');
-      // Give it a moment to fully render
-      await new Promise(resolve => setTimeout(resolve, 500));
+      console.log('[Extractor] Contact Info modal found, waiting for content to load...');
+
+      // Wait for the content to fully load - check for sections or email link
+      // Wait up to 8 seconds (16 attempts x 500ms)
+      let contentAttempts = 0;
+      const maxContentAttempts = 16;
+
+      while (contentAttempts < maxContentAttempts) {
+        // Check if email section or any section with content is present
+        const emailLink = modal.querySelector('a[href^="mailto:"]');
+        const sections = modal.querySelectorAll('section');
+        const hasContent = emailLink || sections.length > 0;
+
+        if (hasContent) {
+          console.log('[Extractor] Contact Info content loaded');
+          // Give it one more moment for any final rendering
+          await new Promise(resolve => setTimeout(resolve, 500));
+          return true;
+        }
+
+        contentAttempts++;
+        await new Promise(resolve => setTimeout(resolve, 500));
+      }
+
+      // Content didn't fully load but modal is there, proceed anyway
+      console.log('[Extractor] Contact Info modal open but content may be incomplete');
       return true;
     }
 

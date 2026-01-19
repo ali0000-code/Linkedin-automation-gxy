@@ -1047,6 +1047,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           }
 
           // Get participant info - handle both legacy and new formats
+          // IMPORTANT: Skip the current user (self) to get the OTHER participant
           let participantName = 'Unknown';
           let participantLinkedinId = null;
           let participantProfileUrl = null;
@@ -1054,6 +1055,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
           // Try new format first (with *conversationParticipants)
           const participantRefs = element['*conversationParticipants'] || element['*participants'] || element.participants || [];
+
+          // Collect all participants first, then pick the non-self one
+          const allParticipants = [];
+
           for (const pRef of participantRefs) {
             const participant = entityMap[pRef] || (typeof pRef === 'object' ? pRef : null);
             if (participant) {
@@ -1063,40 +1068,64 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
               // Try to get participant info
               if (profile) {
-                participantName = `${profile.firstName || ''} ${profile.lastName || ''}`.trim() || profile.name || 'Unknown';
-                participantLinkedinId = profile.publicIdentifier;
-                participantProfileUrl = participantLinkedinId
-                  ? `https://www.linkedin.com/in/${participantLinkedinId}/`
-                  : null;
+                const name = `${profile.firstName || ''} ${profile.lastName || ''}`.trim() || profile.name || 'Unknown';
+                const linkedinId = profile.publicIdentifier;
+                const profileUrl = linkedinId ? `https://www.linkedin.com/in/${linkedinId}/` : null;
 
                 // Get avatar - handle multiple picture formats
+                let avatarUrl = null;
                 const picture = profile.profilePicture?.displayImageReference?.vectorImage ||
-                                profile.picture?.rootUrl ? profile.picture : null;
+                                (profile.picture?.rootUrl ? profile.picture : null);
                 if (picture?.rootUrl && picture?.artifacts?.length) {
                   const artifact = picture.artifacts[picture.artifacts.length - 1];
-                  participantAvatarUrl = picture.rootUrl + artifact.fileIdentifyingUrlPathSegment;
+                  avatarUrl = picture.rootUrl + artifact.fileIdentifyingUrlPathSegment;
                 }
-                break;
+
+                // Check if this is self (hostIdentityUrn indicates self)
+                const isSelf = participant.hostIdentityUrn || participant.isSelf || false;
+
+                allParticipants.push({
+                  name, linkedinId, profileUrl, avatarUrl, isSelf
+                });
+                continue;
               }
 
               // Legacy format: participant has *miniProfile
               const miniProfileRef = participant['*miniProfile'];
               const miniProfile = entityMap[miniProfileRef] || participant.miniProfile;
               if (miniProfile) {
-                participantName = `${miniProfile.firstName || ''} ${miniProfile.lastName || ''}`.trim();
-                participantLinkedinId = miniProfile.publicIdentifier;
-                participantProfileUrl = participantLinkedinId
-                  ? `https://www.linkedin.com/in/${participantLinkedinId}/`
-                  : null;
+                const name = `${miniProfile.firstName || ''} ${miniProfile.lastName || ''}`.trim();
+                const linkedinId = miniProfile.publicIdentifier;
+                const profileUrl = linkedinId ? `https://www.linkedin.com/in/${linkedinId}/` : null;
 
+                let avatarUrl = null;
                 const pic = miniProfile.picture;
                 if (pic?.rootUrl && pic?.artifacts?.length) {
                   const artifact = pic.artifacts[pic.artifacts.length - 1];
-                  participantAvatarUrl = pic.rootUrl + artifact.fileIdentifyingUrlPathSegment;
+                  avatarUrl = pic.rootUrl + artifact.fileIdentifyingUrlPathSegment;
                 }
-                break;
+
+                // Check if this is self
+                const isSelf = participant.hostIdentityUrn || participant.isSelf || false;
+
+                allParticipants.push({
+                  name, linkedinId, profileUrl, avatarUrl, isSelf
+                });
               }
             }
+          }
+
+          // Pick the OTHER participant (not self)
+          // If we can't determine self, pick the second one (first is usually self in LinkedIn's API)
+          const otherParticipant = allParticipants.find(p => !p.isSelf) ||
+                                   allParticipants[1] ||
+                                   allParticipants[0];
+
+          if (otherParticipant) {
+            participantName = otherParticipant.name;
+            participantLinkedinId = otherParticipant.linkedinId;
+            participantProfileUrl = otherParticipant.profileUrl;
+            participantAvatarUrl = otherParticipant.avatarUrl;
           }
 
           // Get last message preview
@@ -1412,6 +1441,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           if (response.ok) {
             const data = await response.json();
             const included = data.included || [];
+            const elements = data.data?.elements || data.elements || [];
 
             // Build entity map
             const entityMap = {};
@@ -1419,8 +1449,26 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
               if (entity.entityUrn) entityMap[entity.entityUrn] = entity;
             }
 
-            // Get Event entities from included (not elements!)
-            const eventEntities = included.filter(e => e['$type'] === 'com.linkedin.voyager.messaging.Event');
+            // Get events - the API endpoint is already filtered by conversation ID
+            // so all events in the response belong to this conversation
+            let eventEntities = [];
+
+            // Try elements array first (main response)
+            if (elements.length > 0) {
+              eventEntities = elements.filter(e =>
+                e['$type'] === 'com.linkedin.voyager.messaging.Event' ||
+                e.eventContent
+              );
+              console.log('[Content Script] Using elements array:', eventEntities.length, 'events');
+            }
+
+            // Fallback: check included array for events
+            if (eventEntities.length === 0) {
+              eventEntities = included.filter(e =>
+                e['$type'] === 'com.linkedin.voyager.messaging.Event'
+              );
+              console.log('[Content Script] Using included array fallback:', eventEntities.length, 'events');
+            }
 
             const messages = [];
             for (const event of eventEntities) {
@@ -1443,9 +1491,22 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
                 senderName = `${miniProfile.firstName || ''} ${miniProfile.lastName || ''}`.trim();
               }
 
-              // Check if from me
+              // Check if from me - multiple methods for reliability
+              // Method 1: Check subtype (most reliable when available)
               if (event.subtype === 'MEMBER_TO_MEMBER_OUTBOUND') {
                 isFromMe = true;
+              }
+              // Method 2: Check fromCurrentUser flag
+              else if (event.fromCurrentUser === true) {
+                isFromMe = true;
+              }
+              // Method 3: Check participant type in sender
+              else if (sender) {
+                const participantRef = sender['*messagingMember'] || sender['*participant'];
+                const participant = entityMap[participantRef] || sender;
+                if (participant?.participantType === 'SELF' || participant?.isSelf === true) {
+                  isFromMe = true;
+                }
               }
 
               messages.push({
@@ -1702,6 +1763,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
           if (msgData) {
             const msgIncluded = msgData.included || [];
+            const msgElements = msgData.data?.elements || msgData.elements || [];
 
             // Build message entity map
             const msgEntityMap = {};
@@ -1709,12 +1771,35 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
               if (entity.entityUrn) msgEntityMap[entity.entityUrn] = entity;
             }
 
-            // Get message entities (GraphQL uses different type)
-            const messageEntities = useGraphQL
-              ? msgIncluded.filter(e =>
-                  e['$type'] === 'com.linkedin.voyager.dash.messaging.MessengerMessage' ||
-                  e.entityUrn?.includes('msg_message'))
-              : msgIncluded.filter(e => e['$type'] === 'com.linkedin.voyager.messaging.Event');
+            // Get message entities - the API endpoint is already filtered by conversation
+            // so we just need to find the message/event entities
+            let messageEntities = [];
+
+            if (useGraphQL) {
+              // GraphQL format - messages are in included array with specific type
+              messageEntities = msgIncluded.filter(e =>
+                e['$type'] === 'com.linkedin.voyager.dash.messaging.MessengerMessage' ||
+                e.entityUrn?.includes('msg_message')
+              );
+              console.log('[Content Script] GraphQL: Found', messageEntities.length, 'message entities');
+            } else {
+              // REST format - events are in elements array
+              if (msgElements.length > 0) {
+                messageEntities = msgElements.filter(e =>
+                  e['$type'] === 'com.linkedin.voyager.messaging.Event' || e.eventContent
+                );
+                console.log('[Content Script] REST elements: Found', messageEntities.length, 'events');
+              }
+              // Fallback: check included array for events
+              if (messageEntities.length === 0) {
+                messageEntities = msgIncluded.filter(e =>
+                  e['$type'] === 'com.linkedin.voyager.messaging.Event'
+                );
+                console.log('[Content Script] REST included fallback: Found', messageEntities.length, 'events');
+              }
+            }
+
+            console.log('[Content Script] Processing', messageEntities.length, 'events for conversation', conversationId);
 
             // Process messages
             for (const event of messageEntities) {

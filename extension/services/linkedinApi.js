@@ -280,21 +280,36 @@ const LinkedInAPI = {
           const content = entity.body?.text || '';
           const createdAt = entity.deliveredAt || entity.createdAt;
 
-          // Check if from me
-          const senderUrn = entity.sender?.entityUrn || entity['*sender'];
-          const isFromMe = senderUrn?.includes(myProfileUrn?.split(':').pop());
-
           // Get sender info
+          const senderUrn = entity.sender?.entityUrn || entity['*sender'];
+          const sender = entityMap[senderUrn] || entity.sender;
+
           let senderName = 'Unknown';
           let senderLinkedinId = null;
+          let senderProfileUrn = null;
 
-          const sender = entityMap[senderUrn] || entity.sender;
           if (sender) {
             const profileRef = sender['*profile'] || sender.profile;
             const profile = entityMap[profileRef] || sender;
             if (profile) {
               senderName = `${profile.firstName || ''} ${profile.lastName || ''}`.trim() || 'Unknown';
               senderLinkedinId = profile.publicIdentifier;
+              senderProfileUrn = profile.entityUrn;
+            }
+          }
+
+          // Determine if from me - compare profile URNs directly or extract IDs
+          let isFromMe = false;
+          if (myProfileUrn && senderProfileUrn) {
+            // Direct URN comparison
+            isFromMe = senderProfileUrn === myProfileUrn;
+          } else if (myProfileUrn && senderUrn) {
+            // Fallback: extract fsd_profile ID and compare
+            const myIdMatch = myProfileUrn.match(/fsd_profile:([^,)\s]+)/);
+            const senderIdMatch = senderUrn.match(/fsd_profile:([^,)\s]+)/) ||
+                                  senderProfileUrn?.match(/fsd_profile:([^,)\s]+)/);
+            if (myIdMatch && senderIdMatch) {
+              isFromMe = myIdMatch[1] === senderIdMatch[1];
             }
           }
 
@@ -703,14 +718,6 @@ const LinkedInAPI = {
       }
     }
 
-    // Get current user URN for determining is_from_me
-    let currentUserUrn = null;
-    for (const entity of included) {
-      if (entity.$type === 'com.linkedin.voyager.identity.shared.MiniProfile' && entity.memorialized === false) {
-        // This is likely the current user - we'll compare with sender
-      }
-    }
-
     for (const element of elements) {
       try {
         const eventUrn = element.entityUrn;
@@ -742,8 +749,9 @@ const LinkedInAPI = {
         }
 
         // Determine if message is from current user
-        // Check if the message has a 'fromCurrentUser' field or similar
-        isFromMe = element.fromCurrentUser ?? (element.subtype === 'MEMBER_TO_MEMBER');
+        // 'MEMBER_TO_MEMBER_OUTBOUND' = sent BY current user
+        // 'MEMBER_TO_MEMBER' = any DM (NOT necessarily from me - this was a bug!)
+        isFromMe = element.fromCurrentUser ?? (element.subtype === 'MEMBER_TO_MEMBER_OUTBOUND');
 
         messages.push({
           linkedin_message_id: messageId,

@@ -1,0 +1,23 @@
+{
+  "name": "linkedin-selector-tests",
+  "version": "1.0.0",
+  "description": "Playwright tests for LinkedIn selector validation",
+  "scripts": {
+    "test": "npx playwright test complete-test.spec.js",
+    "test:all": "npx playwright test complete-test.spec.js --headed --retries=0",
+    "test:headed": "npx playwright test complete-test.spec.js --headed",
+    "test:debug": "npx playwright test complete-test.spec.js --debug",
+    "test:ui": "npx playwright test --ui",
+    "test:multi": "npx playwright test multi-profile.spec.js --headed --retries=0",
+    "test:profile": "npx playwright test profile.spec.js --headed",
+    "test:search": "npx playwright test search.spec.js --headed",
+    "test:inbox": "npx playwright test inbox.spec.js --headed",
+    "test:connections": "npx playwright test connections.spec.js --headed",
+    "test:legacy": "npx playwright test --headed",
+    "auth:save": "node scripts/save-auth.js",
+    "report": "npx playwright show-report"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.40.0"
+  }
+}

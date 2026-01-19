@@ -25,6 +25,8 @@ const CampaignWizard = () => {
     selectedAction: null,
     inviteWithNote: false,
     selectedTemplateId: null,
+    inviteTemplateId: null, // For connect_message: invite template when not connected
+    fallbackTemplateId: null, // For email_message: message fallback template
     selectedTags: [],
   });
 
@@ -108,6 +110,10 @@ const CampaignWizard = () => {
           message_template_id: campaignData.selectedTemplateId || null,
           config: selectedAction?.key === 'invite' && !campaignData.inviteWithNote
             ? { send_without_note: true }
+            : selectedAction?.key === 'connect_message'
+            ? { invite_template_id: campaignData.inviteTemplateId }
+            : selectedAction?.key === 'email_message'
+            ? { fallback_template_id: campaignData.fallbackTemplateId }
             : null,
         },
       ],
@@ -189,6 +195,18 @@ const CampaignWizard = () => {
         if (action?.key === 'email') {
           // Email template is required for email action
           return campaignData.selectedTemplateId !== null;
+        }
+        if (action?.key === 'connect_message') {
+          // Both templates required for connect_message
+          return campaignData.selectedTemplateId !== null && campaignData.inviteTemplateId !== null;
+        }
+        if (action?.key === 'visit_follow_connect') {
+          // Only invitation template required
+          return campaignData.selectedTemplateId !== null;
+        }
+        if (action?.key === 'email_message') {
+          // Both email template and fallback message template required
+          return campaignData.selectedTemplateId !== null && campaignData.fallbackTemplateId !== null;
         }
         return true;
       case 4:
@@ -444,6 +462,32 @@ const StepActionSelection = ({ actions, loading, campaignData, setCampaignData }
                       d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"
                     />
                   )}
+                  {action.key === 'connect_message' && (
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M13 10V3L4 14h7v7l9-11h-7z"
+                    />
+                  )}
+                  {action.key === 'visit_follow_connect' && (
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z"
+                    />
+                  )}
+                  {action.key === 'email_message' && (
+                    <>
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={2}
+                        d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"
+                      />
+                    </>
+                  )}
                 </svg>
               </div>
               <div className="flex-1">
@@ -693,6 +737,353 @@ const StepActionConfig = ({
                       {emailTemplates.find((t) => t.id === campaignData.selectedTemplateId)?.content}
                     </div>
                   </div>
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  // Smart Connect action: select both message and invite templates
+  if (selectedAction.key === 'connect_message') {
+    return (
+      <div className="space-y-6">
+        <div>
+          <h2 className="text-xl font-bold text-gray-900 mb-2">Configure Connect + Message</h2>
+          <p className="text-sm text-gray-600">
+            Automatically adapts based on connection status:
+          </p>
+        </div>
+
+        <div className="p-4 bg-blue-50 rounded-lg border border-blue-200">
+          <div className="flex items-start space-x-3">
+            <svg className="w-5 h-5 text-blue-500 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+            </svg>
+            <div className="text-sm text-blue-700">
+              <strong>How it works:</strong>
+              <ul className="mt-1 list-disc list-inside space-y-1">
+                <li>If already connected → Sends a direct message</li>
+                <li>If not connected → Sends a connection request with note</li>
+              </ul>
+            </div>
+          </div>
+        </div>
+
+        {/* Message Template (for connected users) */}
+        <div className="p-4 border border-gray-200 rounded-lg">
+          <div className="flex items-center mb-3">
+            <div className="w-8 h-8 rounded-full bg-green-100 flex items-center justify-center mr-3">
+              <svg className="w-4 h-4 text-green-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+              </svg>
+            </div>
+            <div>
+              <div className="text-sm font-medium text-gray-900">If Connected</div>
+              <div className="text-xs text-gray-500">Message to send to existing connections</div>
+            </div>
+          </div>
+
+          <label className="block text-sm font-medium text-gray-700 mb-2">
+            Message Template <span className="text-red-500">*</span>
+          </label>
+          {messageTemplates.length === 0 ? (
+            <div className="text-sm text-gray-500 p-3 bg-gray-50 rounded-lg">
+              No message templates found. Please create one first.
+            </div>
+          ) : (
+            <>
+              <select
+                value={campaignData.selectedTemplateId || ''}
+                onChange={(e) =>
+                  setCampaignData({
+                    ...campaignData,
+                    selectedTemplateId: parseInt(e.target.value),
+                  })
+                }
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-linkedin focus:border-transparent"
+              >
+                <option value="">Select message template...</option>
+                {messageTemplates.map((template) => (
+                  <option key={template.id} value={template.id}>
+                    {template.name}
+                  </option>
+                ))}
+              </select>
+
+              {campaignData.selectedTemplateId && (
+                <div className="mt-2 p-2 bg-gray-50 rounded text-sm text-gray-600">
+                  {messageTemplates.find((t) => t.id === campaignData.selectedTemplateId)?.content}
+                </div>
+              )}
+            </>
+          )}
+        </div>
+
+        {/* Invite Template (for not connected users) */}
+        <div className="p-4 border border-gray-200 rounded-lg">
+          <div className="flex items-center mb-3">
+            <div className="w-8 h-8 rounded-full bg-yellow-100 flex items-center justify-center mr-3">
+              <svg className="w-4 h-4 text-yellow-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z" />
+              </svg>
+            </div>
+            <div>
+              <div className="text-sm font-medium text-gray-900">If Not Connected</div>
+              <div className="text-xs text-gray-500">Connection request note (max 300 chars)</div>
+            </div>
+          </div>
+
+          <label className="block text-sm font-medium text-gray-700 mb-2">
+            Invitation Template <span className="text-red-500">*</span>
+          </label>
+          {invitationTemplates.length === 0 ? (
+            <div className="text-sm text-gray-500 p-3 bg-gray-50 rounded-lg">
+              No invitation templates found. Please create one first.
+            </div>
+          ) : (
+            <>
+              <select
+                value={campaignData.inviteTemplateId || ''}
+                onChange={(e) =>
+                  setCampaignData({
+                    ...campaignData,
+                    inviteTemplateId: parseInt(e.target.value),
+                  })
+                }
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-linkedin focus:border-transparent"
+              >
+                <option value="">Select invitation template...</option>
+                {invitationTemplates.map((template) => (
+                  <option key={template.id} value={template.id}>
+                    {template.name}
+                  </option>
+                ))}
+              </select>
+
+              {campaignData.inviteTemplateId && (
+                <div className="mt-2 p-2 bg-gray-50 rounded text-sm text-gray-600">
+                  {invitationTemplates.find((t) => t.id === campaignData.inviteTemplateId)?.content}
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  // Warm Connect action: visit + follow + connect combo
+  if (selectedAction.key === 'visit_follow_connect') {
+    return (
+      <div className="space-y-6">
+        <div>
+          <h2 className="text-xl font-bold text-gray-900 mb-2">Configure Visit + Follow + Connect</h2>
+          <p className="text-sm text-gray-600">
+            Warms up prospects before sending a connection request
+          </p>
+        </div>
+
+        <div className="p-4 bg-amber-50 rounded-lg border border-amber-200">
+          <div className="flex items-start space-x-3">
+            <svg className="w-5 h-5 text-amber-500 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z" />
+            </svg>
+            <div className="text-sm text-amber-700">
+              <strong>How it works:</strong>
+              <ol className="mt-1 list-decimal list-inside space-y-1">
+                <li>Visit the prospect's LinkedIn profile</li>
+                <li>Follow their profile</li>
+                <li>Send a connection request with your note</li>
+              </ol>
+              <p className="mt-2 text-xs">This sequence increases acceptance rates by building familiarity first.</p>
+            </div>
+          </div>
+        </div>
+
+        <div className="p-4 border border-gray-200 rounded-lg">
+          <div className="flex items-center mb-3">
+            <div className="w-8 h-8 rounded-full bg-linkedin flex items-center justify-center mr-3">
+              <svg className="w-4 h-4 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z" />
+              </svg>
+            </div>
+            <div>
+              <div className="text-sm font-medium text-gray-900">Connection Request Note</div>
+              <div className="text-xs text-gray-500">Message sent with connection request (max 300 chars)</div>
+            </div>
+          </div>
+
+          <label className="block text-sm font-medium text-gray-700 mb-2">
+            Invitation Template <span className="text-red-500">*</span>
+          </label>
+          {invitationTemplates.length === 0 ? (
+            <div className="text-sm text-gray-500 p-3 bg-gray-50 rounded-lg">
+              No invitation templates found. Please create one first.
+            </div>
+          ) : (
+            <>
+              <select
+                value={campaignData.selectedTemplateId || ''}
+                onChange={(e) =>
+                  setCampaignData({
+                    ...campaignData,
+                    selectedTemplateId: parseInt(e.target.value),
+                  })
+                }
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-linkedin focus:border-transparent"
+              >
+                <option value="">Select invitation template...</option>
+                {invitationTemplates.map((template) => (
+                  <option key={template.id} value={template.id}>
+                    {template.name}
+                  </option>
+                ))}
+              </select>
+
+              {campaignData.selectedTemplateId && (
+                <div className="mt-2 p-2 bg-gray-50 rounded text-sm text-gray-600">
+                  {invitationTemplates.find((t) => t.id === campaignData.selectedTemplateId)?.content}
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  // Smart Email action: email with message fallback
+  if (selectedAction.key === 'email_message') {
+    return (
+      <div className="space-y-6">
+        <div>
+          <h2 className="text-xl font-bold text-gray-900 mb-2">Configure Email + Message</h2>
+          <p className="text-sm text-gray-600">
+            Sends email if available, with LinkedIn message as fallback
+          </p>
+        </div>
+
+        <div className="p-4 bg-purple-50 rounded-lg border border-purple-200">
+          <div className="flex items-start space-x-3">
+            <svg className="w-5 h-5 text-purple-500 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+            </svg>
+            <div className="text-sm text-purple-700">
+              <strong>How it works:</strong>
+              <ol className="mt-1 list-decimal list-inside space-y-1">
+                <li>If prospect has email → Send email</li>
+                <li>If no email → Visit profile and extract email from Contact Info</li>
+                <li>If extraction successful → Send email</li>
+                <li>If no email found → Send LinkedIn message as fallback</li>
+              </ol>
+            </div>
+          </div>
+        </div>
+
+        {/* Email Template (primary) */}
+        <div className="p-4 border border-gray-200 rounded-lg">
+          <div className="flex items-center mb-3">
+            <div className="w-8 h-8 rounded-full bg-purple-100 flex items-center justify-center mr-3">
+              <svg className="w-4 h-4 text-purple-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+              </svg>
+            </div>
+            <div>
+              <div className="text-sm font-medium text-gray-900">Primary: Email</div>
+              <div className="text-xs text-gray-500">Sent when prospect has an email address</div>
+            </div>
+          </div>
+
+          <label className="block text-sm font-medium text-gray-700 mb-2">
+            Email Template <span className="text-red-500">*</span>
+          </label>
+          {emailTemplates.length === 0 ? (
+            <div className="text-sm text-gray-500 p-3 bg-gray-50 rounded-lg">
+              No email templates found. Please create one first.
+            </div>
+          ) : (
+            <>
+              <select
+                value={campaignData.selectedTemplateId || ''}
+                onChange={(e) =>
+                  setCampaignData({
+                    ...campaignData,
+                    selectedTemplateId: parseInt(e.target.value),
+                  })
+                }
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-linkedin focus:border-transparent"
+              >
+                <option value="">Select email template...</option>
+                {emailTemplates.map((template) => (
+                  <option key={template.id} value={template.id}>
+                    {template.name}
+                  </option>
+                ))}
+              </select>
+
+              {campaignData.selectedTemplateId && (
+                <div className="mt-2 p-2 bg-gray-50 rounded">
+                  <div className="text-xs text-gray-500 mb-1">Subject:</div>
+                  <div className="text-sm text-gray-700 font-medium mb-2">
+                    {emailTemplates.find((t) => t.id === campaignData.selectedTemplateId)?.subject || 'No subject'}
+                  </div>
+                  <div className="text-xs text-gray-500 mb-1">Body:</div>
+                  <div className="text-sm text-gray-600 whitespace-pre-wrap">
+                    {emailTemplates.find((t) => t.id === campaignData.selectedTemplateId)?.content}
+                  </div>
+                </div>
+              )}
+            </>
+          )}
+        </div>
+
+        {/* Fallback Message Template */}
+        <div className="p-4 border border-gray-200 rounded-lg">
+          <div className="flex items-center mb-3">
+            <div className="w-8 h-8 rounded-full bg-gray-100 flex items-center justify-center mr-3">
+              <svg className="w-4 h-4 text-gray-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+              </svg>
+            </div>
+            <div>
+              <div className="text-sm font-medium text-gray-900">Fallback: LinkedIn Message</div>
+              <div className="text-xs text-gray-500">Sent when no email can be found</div>
+            </div>
+          </div>
+
+          <label className="block text-sm font-medium text-gray-700 mb-2">
+            Message Template <span className="text-red-500">*</span>
+          </label>
+          {messageTemplates.length === 0 ? (
+            <div className="text-sm text-gray-500 p-3 bg-gray-50 rounded-lg">
+              No message templates found. Please create one first.
+            </div>
+          ) : (
+            <>
+              <select
+                value={campaignData.fallbackTemplateId || ''}
+                onChange={(e) =>
+                  setCampaignData({
+                    ...campaignData,
+                    fallbackTemplateId: parseInt(e.target.value),
+                  })
+                }
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-linkedin focus:border-transparent"
+              >
+                <option value="">Select message template...</option>
+                {messageTemplates.map((template) => (
+                  <option key={template.id} value={template.id}>
+                    {template.name}
+                  </option>
+                ))}
+              </select>
+
+              {campaignData.fallbackTemplateId && (
+                <div className="mt-2 p-2 bg-gray-50 rounded text-sm text-gray-600">
+                  {messageTemplates.find((t) => t.id === campaignData.fallbackTemplateId)?.content}
                 </div>
               )}
             </>

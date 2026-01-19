@@ -856,53 +856,8 @@ const MessageExtractor = {
 };
 
 // Export for use in content script
+// NOTE: MutationObserver auto-start REMOVED - polling is now the single source of truth
+// for new message detection (see background.js performUnifiedPollingCycle)
 if (typeof window !== 'undefined') {
   window.MessageExtractor = MessageExtractor;
-
-  // Auto-start message watcher when on a conversation page
-  const startWatcherIfNeeded = () => {
-    if (window.location.href.includes('/messaging/thread/')) {
-      console.log('[MessageExtractor] On conversation page, starting watcher...');
-      setTimeout(() => {
-        if (window.MessageExtractor && !window.MessageExtractor._messageObserver) {
-          window.MessageExtractor.startWatchingMessages();
-        }
-      }, 2000);
-    }
-  };
-
-  // Start on initial page load
-  startWatcherIfNeeded();
-
-  // Also watch for URL changes (SPA navigation)
-  let lastUrl = window.location.href;
-  const urlObserver = new MutationObserver(() => {
-    if (window.location.href !== lastUrl) {
-      lastUrl = window.location.href;
-      console.log('[MessageExtractor] URL changed to:', lastUrl);
-      // Stop existing observer if any
-      if (window.MessageExtractor?._messageObserver) {
-        window.MessageExtractor.stopWatchingMessages();
-      }
-      startWatcherIfNeeded();
-    }
-  });
-
-  urlObserver.observe(document.body, { childList: true, subtree: true });
-
-  // Also listen for history state changes
-  window.addEventListener('popstate', startWatcherIfNeeded);
-
-  // Override pushState and replaceState to detect SPA navigation
-  const originalPushState = history.pushState;
-  history.pushState = function(...args) {
-    originalPushState.apply(this, args);
-    setTimeout(startWatcherIfNeeded, 500);
-  };
-
-  const originalReplaceState = history.replaceState;
-  history.replaceState = function(...args) {
-    originalReplaceState.apply(this, args);
-    setTimeout(startWatcherIfNeeded, 500);
-  };
 }

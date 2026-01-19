@@ -177,6 +177,7 @@ class CampaignService
 
     /**
      * Add prospects to a campaign.
+     * OPTIMIZATION: Uses bulk fetch and bulk insert instead of N+1 queries.
      *
      * @param Campaign $campaign
      * @param array $prospectIds
@@ -184,23 +185,39 @@ class CampaignService
      */
     public function addProspects(Campaign $campaign, array $prospectIds): int
     {
-        $added = 0;
-
-        foreach ($prospectIds as $prospectId) {
-            // Check if prospect already exists in campaign
-            $exists = $campaign->campaignProspects()
-                ->where('prospect_id', $prospectId)
-                ->exists();
-
-            if (!$exists) {
-                $campaign->campaignProspects()->create([
-                    'prospect_id' => $prospectId,
-                    'status' => CampaignProspect::STATUS_PENDING,
-                    'current_step' => 0,
-                ]);
-                $added++;
-            }
+        if (empty($prospectIds)) {
+            return 0;
         }
+
+        // OPTIMIZATION: Bulk fetch existing prospect IDs in one query
+        $existingProspectIds = $campaign->campaignProspects()
+            ->whereIn('prospect_id', $prospectIds)
+            ->pluck('prospect_id')
+            ->toArray();
+
+        // Filter to only new prospects
+        $newProspectIds = array_diff($prospectIds, $existingProspectIds);
+
+        if (empty($newProspectIds)) {
+            return 0;
+        }
+
+        // OPTIMIZATION: Bulk insert all new prospects
+        $now = now();
+        $insertData = [];
+        foreach ($newProspectIds as $prospectId) {
+            $insertData[] = [
+                'campaign_id' => $campaign->id,
+                'prospect_id' => $prospectId,
+                'status' => CampaignProspect::STATUS_PENDING,
+                'current_step' => 0,
+                'created_at' => $now,
+                'updated_at' => $now,
+            ];
+        }
+
+        CampaignProspect::insert($insertData);
+        $added = count($newProspectIds);
 
         // Update total prospects count
         $campaign->total_prospects = $campaign->campaignProspects()->count();

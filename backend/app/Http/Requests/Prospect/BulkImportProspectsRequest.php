@@ -34,6 +34,7 @@ class BulkImportProspectsRequest extends FormRequest
             'prospects.*.location' => ['nullable', 'string', 'max:255'],
             'prospects.*.company' => ['nullable', 'string', 'max:255'],
             'prospects.*.profile_image_url' => ['nullable', 'string', 'url', 'max:500'],
+            'prospects.*.email' => ['nullable', 'email', 'max:255'],
         ];
     }
 
