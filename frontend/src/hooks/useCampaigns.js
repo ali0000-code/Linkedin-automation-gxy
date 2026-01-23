@@ -148,23 +148,22 @@ export const useStartCampaign = () => {
 
   return useMutation({
     mutationFn: (id) => campaignService.startCampaign(id),
-    onSuccess: async (response, id) => {
+    onSuccess: (response, id) => {
       // Invalidate queries to refresh UI
       queryClient.invalidateQueries({ queryKey: ['campaign', id] });
       queryClient.invalidateQueries({ queryKey: ['campaigns'] });
       queryClient.invalidateQueries({ queryKey: ['campaign-stats'] });
 
-      // Automatically trigger extension to start processing
-      try {
-        console.log('[useCampaigns] Campaign started, triggering extension...');
-        const extensionResult = await startCampaignQueue();
-        console.log('[useCampaigns] Extension response:', extensionResult);
-      } catch (error) {
-        // Don't fail the mutation if extension communication fails
-        // The user can manually start the queue from the extension
-        console.warn('[useCampaigns] Could not auto-start extension queue:', error.message);
-        console.log('[useCampaigns] User can manually start from extension popup');
-      }
+      // Trigger extension to start processing (fire-and-forget, don't block)
+      console.log('[useCampaigns] Campaign started, triggering extension...');
+      startCampaignQueue()
+        .then((result) => {
+          console.log('[useCampaigns] Extension response:', result);
+        })
+        .catch((error) => {
+          // Don't fail if extension communication fails
+          console.warn('[useCampaigns] Could not auto-start extension queue:', error.message);
+        });
     },
   });
 };

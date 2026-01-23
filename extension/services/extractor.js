@@ -8,22 +8,32 @@
 /**
  * Scroll page to load all lazy-loaded content
  * LinkedIn uses infinite scroll, so we need to scroll to bottom multiple times
+ * @param {number} maxProfiles - Optional max profiles to load (for limit-based scrolling)
  * @returns {Promise<void>}
  */
-async function scrollToLoadAll() {
+async function scrollToLoadAll(maxProfiles = null) {
+  // Check if we're on the connections page - it uses a different mechanism
+  const isConnections = window.location.href.includes('linkedin.com/mynetwork/invite-connect/connections');
+
+  console.log('[Extractor] Starting auto-scroll to load all profiles...');
+  console.log('[Extractor] Is connections page:', isConnections);
+  console.log('[Extractor] Target profiles:', maxProfiles || 'unlimited');
+
+  if (isConnections) {
+    // Connections page uses infinite scroll
+    await loadConnectionsWithScroll(maxProfiles);
+    return;
+  }
+
+  // Regular search page - use standard scrolling
   let previousHeight = 0;
   let currentHeight = document.body.scrollHeight;
   let attempts = 0;
-  const maxAttempts = 50; // Prevent infinite loop
-  const scrollDelay = 1000; // Wait 1 second between scrolls
-
-  console.log('[Extractor] Starting auto-scroll to load all profiles...');
+  const maxAttempts = 50;
+  const scrollDelay = 1000;
 
   while (previousHeight !== currentHeight && attempts < maxAttempts) {
-    // Scroll to bottom
     window.scrollTo(0, document.body.scrollHeight);
-
-    // Wait for LinkedIn to load more content
     await new Promise(resolve => setTimeout(resolve, scrollDelay));
 
     previousHeight = currentHeight;
@@ -33,10 +43,80 @@ async function scrollToLoadAll() {
     console.log(`[Extractor] Scroll attempt ${attempts}: Height ${currentHeight}px`);
   }
 
-  // Scroll back to top for better UX
   window.scrollTo(0, 0);
-
   console.log(`[Extractor] Scrolling complete after ${attempts} attempts`);
+}
+
+/**
+ * Load connections by scrolling down repeatedly
+ * LinkedIn connections page uses infinite scroll on the <main> element
+ * @param {number} maxProfiles - Maximum number of profiles to load
+ * @returns {Promise<void>}
+ */
+async function loadConnectionsWithScroll(maxProfiles = 100) {
+  let attempts = 0;
+  const maxAttempts = 200;
+  let noNewConnectionsCount = 0;
+  const maxNoNewConnections = 5;
+  const scrollDelay = 1500;
+
+  // Find the scrollable main container
+  const scrollContainer = document.querySelector('main');
+  if (!scrollContainer) {
+    console.error('[Extractor] Could not find main scroll container');
+    return;
+  }
+
+  console.log(`[Extractor] Found scroll container: ${scrollContainer.tagName}`);
+
+  // Get current connection count
+  const getConnectionCount = () => {
+    const links = document.querySelectorAll('a[data-view-name="connections-profile"][href*="/in/"]');
+    return Math.floor(links.length / 2); // Each card has 2 links
+  };
+
+  let previousCount = getConnectionCount();
+  console.log(`[Extractor] Initial connection count: ${previousCount}`);
+
+  while (attempts < maxAttempts) {
+    // Check if we have enough profiles
+    const currentCount = getConnectionCount();
+    if (maxProfiles && currentCount >= maxProfiles) {
+      console.log(`[Extractor] Reached target of ${maxProfiles} connections`);
+      break;
+    }
+
+    // Scroll the main container down to trigger infinite scroll loading
+    scrollContainer.scrollTo(0, scrollContainer.scrollHeight);
+
+    // Wait for content to load
+    await new Promise(resolve => setTimeout(resolve, scrollDelay));
+
+    // Check if new connections were loaded
+    const newCount = getConnectionCount();
+
+    if (newCount > previousCount) {
+      console.log(`[Extractor] Scroll ${attempts + 1}: Loaded ${newCount} connections (+${newCount - previousCount})`);
+      noNewConnectionsCount = 0;
+      previousCount = newCount;
+    } else {
+      noNewConnectionsCount++;
+      console.log(`[Extractor] Scroll ${attempts + 1}: No new connections (${noNewConnectionsCount}/${maxNoNewConnections})`);
+
+      if (noNewConnectionsCount >= maxNoNewConnections) {
+        console.log('[Extractor] No more connections loading, reached end');
+        break;
+      }
+    }
+
+    attempts++;
+  }
+
+  // Scroll back to top
+  scrollContainer.scrollTo({ top: 0, behavior: 'smooth' });
+
+  const finalCount = getConnectionCount();
+  console.log(`[Extractor] Loading complete: ${finalCount} connections loaded after ${attempts} scrolls`);
 }
 
 /**
@@ -476,7 +556,8 @@ async function extractFromConnectionsPage(limit = 100, totalCollected = 0, total
           profile_url: profileUrl,
           linkedin_id: extractLinkedInId(profileUrl),
           headline: headline,
-          profile_image_url: profileImage
+          profile_image_url: profileImage,
+          connection_status: 'connected' // From connections page, so they're connected
         };
 
         extracted.push(prospect);
@@ -568,7 +649,8 @@ async function extractFromConnectionsPage(limit = 100, totalCollected = 0, total
           profile_url: href,
           linkedin_id: extractLinkedInId(href),
           headline: null,
-          profile_image_url: profileImage
+          profile_image_url: profileImage,
+          connection_status: 'connected' // From connections page, so they're connected
         };
 
         extracted.push(prospect);
@@ -632,7 +714,8 @@ async function extractFromConnectionsPage(limit = 100, totalCollected = 0, total
         profile_url: profileUrl,
         linkedin_id: extractLinkedInId(profileUrl),
         headline: headline,
-        profile_image_url: profileImage
+        profile_image_url: profileImage,
+        connection_status: 'connected' // From connections page, so they're connected
       };
 
       extracted.push(prospect);
@@ -686,8 +769,9 @@ async function performExtraction(limit = 100) {
     if (isConnectionsPage()) {
       console.log(`[Extractor] Detected Connections page - using connections extractor`);
 
-      // Connections page uses infinite scroll, so scroll to load all first
-      await scrollToLoadAll();
+      // Connections page uses infinite scroll, so scroll to load enough profiles
+      // Pass the limit so we stop scrolling once we have enough
+      await scrollToLoadAll(limit);
 
       // Extract from connections page
       const prospects = await extractFromConnectionsPage(limit, 0, limit);

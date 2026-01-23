@@ -4,7 +4,7 @@
  * Modal for creating new message templates (invitation, direct message, or email).
  */
 
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import Modal from '../common/Modal';
 import Button from '../common/Button';
 import { useCreateTemplate } from '../../hooks/useTemplates';
@@ -16,6 +16,8 @@ const TemplateCreateModal = ({ isOpen, onClose, type }) => {
     content: '',
   });
   const [errors, setErrors] = useState({});
+  const contentRef = useRef(null);
+  const subjectRef = useRef(null);
 
   const { mutate: createTemplate, isPending } = useCreateTemplate();
 
@@ -118,6 +120,28 @@ const TemplateCreateModal = ({ isOpen, onClose, type }) => {
     return 'Write your message template here...';
   };
 
+  const insertVariable = (variable, targetField = 'content') => {
+    const ref = targetField === 'subject' ? subjectRef : contentRef;
+    const input = ref.current;
+    if (!input) return;
+
+    const start = input.selectionStart;
+    const end = input.selectionEnd;
+    const currentValue = formData[targetField];
+    const newValue = currentValue.substring(0, start) + variable + currentValue.substring(end);
+
+    setFormData((prev) => ({
+      ...prev,
+      [targetField]: newValue,
+    }));
+
+    // Restore cursor position after the inserted variable
+    setTimeout(() => {
+      input.focus();
+      input.setSelectionRange(start + variable.length, start + variable.length);
+    }, 0);
+  };
+
   const getInfoBanner = () => {
     if (type === 'invitation') {
       return (
@@ -134,8 +158,7 @@ const TemplateCreateModal = ({ isOpen, onClose, type }) => {
           <p className="text-sm text-purple-700">
             Email templates require a <strong>subject line</strong>. Use personalization variables like{' '}
             <code className="bg-purple-100 px-1 rounded">{'{firstName}'}</code>,{' '}
-            <code className="bg-purple-100 px-1 rounded">{'{company}'}</code>,{' '}
-            <code className="bg-purple-100 px-1 rounded">{'{headline}'}</code>.
+            <code className="bg-purple-100 px-1 rounded">{'{fullName}'}</code>.
           </p>
         </div>
       );
@@ -175,12 +198,13 @@ const TemplateCreateModal = ({ isOpen, onClose, type }) => {
               type="text"
               id="subject"
               name="subject"
+              ref={subjectRef}
               value={formData.subject}
               onChange={handleChange}
               className={`w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-linkedin ${
                 errors.subject ? 'border-red-500' : 'border-gray-300'
               }`}
-              placeholder="e.g., Quick question about {company}"
+              placeholder="e.g., Quick question about your work"
             />
             {errors.subject && <p className="text-red-500 text-sm mt-1">{errors.subject}</p>}
           </div>
@@ -197,6 +221,7 @@ const TemplateCreateModal = ({ isOpen, onClose, type }) => {
           <textarea
             id="content"
             name="content"
+            ref={contentRef}
             value={formData.content}
             onChange={handleChange}
             rows={type === 'email' ? 10 : 6}
@@ -222,16 +247,19 @@ const TemplateCreateModal = ({ isOpen, onClose, type }) => {
 
         {/* Personalization Variables Help */}
         <div className="bg-gray-50 p-3 rounded-lg">
-          <p className="text-xs text-gray-600 font-medium mb-1">Available Variables:</p>
-          <p className="text-xs text-gray-500">
-            <code className="bg-gray-200 px-1 rounded">{'{firstName}'}</code>{' '}
-            <code className="bg-gray-200 px-1 rounded">{'{lastName}'}</code>{' '}
-            <code className="bg-gray-200 px-1 rounded">{'{fullName}'}</code>{' '}
-            <code className="bg-gray-200 px-1 rounded">{'{company}'}</code>{' '}
-            <code className="bg-gray-200 px-1 rounded">{'{headline}'}</code>{' '}
-            <code className="bg-gray-200 px-1 rounded">{'{location}'}</code>
-            {type === 'email' && <> <code className="bg-gray-200 px-1 rounded">{'{email}'}</code></>}
-          </p>
+          <p className="text-xs text-gray-600 font-medium mb-2">Available Variables (click to insert):</p>
+          <div className="flex flex-wrap gap-2">
+            {['{firstName}', '{lastName}', '{fullName}', ...(type === 'email' ? ['{email}'] : [])].map((variable) => (
+              <button
+                key={variable}
+                type="button"
+                onClick={() => insertVariable(variable)}
+                className="bg-gray-200 hover:bg-linkedin hover:text-white px-2 py-1 rounded text-xs font-mono transition-colors cursor-pointer"
+              >
+                {variable}
+              </button>
+            ))}
+          </div>
         </div>
 
         {/* Buttons */}

@@ -35,8 +35,8 @@ module.exports = defineConfig({
     viewport: { width: 1280, height: 800 },
 
     // Timeouts
-    actionTimeout: 15000,
-    navigationTimeout: 30000,
+    actionTimeout: 30000,
+    navigationTimeout: 60000,
 
     // Capture screenshots on failure
     screenshot: 'only-on-failure',

@@ -16,32 +16,6 @@ console.log('[Background] LinkedIn Automation service worker loaded');
 const PollingManager = {
   intervals: {},
   isRunning: false,
-  _campaignCheckPromise: null,
-
-  /**
-   * Check if a campaign is currently running (checks multiple sources)
-   * @returns {Promise<boolean>}
-   */
-  async isCampaignRunning() {
-    // Check in-memory status first (fast)
-    if (queueStatus.isRunning) {
-      return true;
-    }
-
-    // Also check persisted status (survives service worker restart)
-    try {
-      const stored = await chrome.storage.local.get('queue_status');
-      if (stored.queue_status?.isRunning) {
-        // Sync in-memory status
-        queueStatus.isRunning = true;
-        return true;
-      }
-    } catch (e) {
-      // Ignore storage errors
-    }
-
-    return false;
-  },
 
   /**
    * Register and start a polling task
@@ -56,19 +30,8 @@ const PollingManager = {
       console.log(`[PollingManager] Cleared existing interval: ${name}`);
     }
 
-    // Create wrapper that checks if polling is paused
+    // Create wrapper for error handling
     const wrappedTask = async () => {
-      // Use cached promise if already checking (prevents race)
-      if (!this._campaignCheckPromise) {
-        this._campaignCheckPromise = this.isCampaignRunning();
-      }
-      const campaignRunning = await this._campaignCheckPromise;
-      this._campaignCheckPromise = null;
-
-      if (campaignRunning) {
-        console.log(`[PollingManager] Skipping ${name} - campaign running`);
-        return;
-      }
       try {
         await task();
       } catch (error) {
@@ -887,11 +850,7 @@ async function stopQueueOnLinkedIn(reason = 'User stopped') {
     // Find LinkedIn tabs
     const tabs = await chrome.tabs.query({ url: 'https://www.linkedin.com/*' });
 
-    if (tabs.length === 0) {
-      return { success: true, message: 'No LinkedIn tab found' };
-    }
-
-    // Send stop message to all LinkedIn tabs
+    // Send stop message to all LinkedIn tabs (if any)
     for (const tab of tabs) {
       try {
         await chrome.tabs.sendMessage(tab.id, { type: 'STOP_QUEUE', reason });
@@ -900,16 +859,21 @@ async function stopQueueOnLinkedIn(reason = 'User stopped') {
       }
     }
 
-    // Update local status
+    // ALWAYS update local status, even if no LinkedIn tab found
     queueStatus.isRunning = false;
     queueStatus.status = 'stopped';
     queueStatus.message = reason;
     await chrome.storage.local.set({ queue_status: queueStatus });
 
+    console.log('[Background] Queue status reset to stopped');
     return { success: true, message: 'Queue stopped' };
 
   } catch (error) {
     console.error('[Background] Failed to stop queue:', error);
+    // Still try to reset status on error
+    queueStatus.isRunning = false;
+    queueStatus.status = 'error';
+    await chrome.storage.local.set({ queue_status: queueStatus });
     throw error;
   }
 }

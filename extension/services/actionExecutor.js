@@ -27,6 +27,17 @@ function getRandomDelay(min, max) {
 }
 
 /**
+ * Extract LinkedIn ID from profile URL
+ * @param {string} profileUrl - Full LinkedIn profile URL
+ * @returns {string|null} LinkedIn ID or null
+ */
+function extractLinkedInIdFromUrl(profileUrl) {
+  if (!profileUrl) return null;
+  const match = profileUrl.match(/\/in\/([^\/\?]+)/);
+  return match ? match[1] : null;
+}
+
+/**
  * Get the MAIN profile action container
  * This is critical to avoid clicking wrong buttons (duplicates elsewhere on page)
  * Based on reference extension: getMainProfileActionContainer()
@@ -209,13 +220,23 @@ async function executeVisit(action) {
 
   try {
     const profileUrl = action.prospect.profile_url;
+    const linkedinId = action.prospect.linkedin_id || extractLinkedInIdFromUrl(profileUrl);
+
+    // Check if we're already on this profile by comparing LinkedIn ID
+    const currentUrl = window.location.href;
+    const isOnProfile = currentUrl.includes('/in/') &&
+                        (currentUrl.includes(linkedinId) || currentUrl.includes(profileUrl.replace('https://www.linkedin.com', '')));
+
+    console.log(`[ActionExecutor] Visit - LinkedIn ID: ${linkedinId}, On profile: ${isOnProfile}`);
 
     // Navigate to profile if not already there
-    if (!window.location.href.includes(profileUrl.replace('https://www.linkedin.com', ''))) {
+    if (!isOnProfile) {
       console.log('[ActionExecutor] Navigating to profile:', profileUrl);
       window.location.href = profileUrl;
       return { success: true, message: 'Navigating to profile', navigating: true };
     }
+
+    console.log('[ActionExecutor] Already on profile, proceeding with visit...');
 
     // Already on profile, wait for page to fully load
     await sleep(getRandomDelay(2000, 4000));
@@ -247,21 +268,43 @@ async function executeInvite(action) {
 
   try {
     const profileUrl = action.prospect.profile_url;
+    const linkedinId = action.prospect.linkedin_id || extractLinkedInIdFromUrl(profileUrl);
+
+    // Check if we're already on this profile by comparing LinkedIn ID
+    const currentUrl = window.location.href;
+    const isOnProfile = currentUrl.includes('/in/') &&
+                        (currentUrl.includes(linkedinId) || currentUrl.includes(profileUrl.replace('https://www.linkedin.com', '')));
+
+    console.log(`[ActionExecutor] Invite - LinkedIn ID: ${linkedinId}, On profile: ${isOnProfile}`);
 
     // Navigate to profile if not already there
-    if (!window.location.href.includes(profileUrl.replace('https://www.linkedin.com', ''))) {
+    if (!isOnProfile) {
       console.log('[ActionExecutor] Navigating to profile for invite:', profileUrl);
       window.location.href = profileUrl;
       return { success: true, message: 'Navigating to profile', navigating: true };
     }
 
-    // Wait for page to load
-    await sleep(2000);
+    console.log('[ActionExecutor] Already on profile, proceeding with invite...');
 
-    // Get main profile action container
-    const actionContainer = getMainProfileActionContainer();
+    // Wait for page to load
+    await sleep(3000);
+
+    // Get main profile action container with retries
+    let actionContainer = null;
+    let retryCount = 0;
+    const maxRetries = 5;
+
+    while (!actionContainer && retryCount < maxRetries) {
+      actionContainer = getMainProfileActionContainer();
+      if (!actionContainer) {
+        retryCount++;
+        console.log(`[ActionExecutor] Action container not found, retry ${retryCount}/${maxRetries}...`);
+        await sleep(1500);
+      }
+    }
+
     if (!actionContainer) {
-      return { success: false, message: 'Could not find profile action buttons' };
+      return { success: false, message: 'Could not find profile action buttons after retries' };
     }
 
     await sleep(500);
@@ -273,32 +316,59 @@ async function executeInvite(action) {
       return { success: true, message: 'Connection request already pending' };
     }
 
-    // Try to find visible Connect button first (primary button)
-    let connectButton = actionContainer.querySelector(selectors.PROFILE.CONNECT_BUTTON);
+    // Try to find visible Connect button first (primary button) with retries
+    let connectButton = null;
+    let connectRetry = 0;
+    const maxConnectRetries = 3;
 
-    // If Connect not visible, check More menu
+    while (!connectButton && connectRetry < maxConnectRetries) {
+      connectButton = actionContainer.querySelector(selectors.PROFILE.CONNECT_BUTTON);
+      if (!connectButton) {
+        connectRetry++;
+        console.log(`[ActionExecutor] Connect button not visible yet, retry ${connectRetry}/${maxConnectRetries}...`);
+        await sleep(1000);
+      }
+    }
+
+    // If Connect not visible after retries, check More menu
     if (!connectButton) {
       console.log('[ActionExecutor] Connect button not visible, checking More menu...');
       await sleep(1000);
 
-      // Find More button in container
-      let moreButton = actionContainer.querySelector(selectors.PROFILE.MORE_BUTTON);
+      // Find More button in container with retries
+      let moreButton = null;
+      let moreRetry = 0;
+      const maxMoreRetries = 3;
 
-      // Fallback: look for button with text "More"
-      if (!moreButton) {
-        const buttons = actionContainer.querySelectorAll('button');
-        for (const btn of buttons) {
-          if (btn.textContent.trim() === 'More') {
-            moreButton = btn;
-            break;
+      while (!moreButton && moreRetry < maxMoreRetries) {
+        moreButton = actionContainer.querySelector(selectors.PROFILE.MORE_BUTTON);
+
+        // Fallback: look for button with text "More"
+        if (!moreButton) {
+          const buttons = actionContainer.querySelectorAll('button');
+          for (const btn of buttons) {
+            if (btn.textContent.trim() === 'More') {
+              moreButton = btn;
+              break;
+            }
           }
+        }
+
+        if (!moreButton) {
+          moreRetry++;
+          console.log(`[ActionExecutor] More button not found, retry ${moreRetry}/${maxMoreRetries}...`);
+          await sleep(1500);
         }
       }
 
       if (!moreButton) {
-        console.error('[ActionExecutor] More button not found');
+        console.error('[ActionExecutor] More button not found after retries');
         return { success: false, message: 'Could not find Connect or More button' };
       }
+
+      // Scroll More button into view
+      moreButton.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      await sleep(500);
 
       console.log('[ActionExecutor] Clicking More button...');
       moreButton.click();
@@ -438,12 +508,23 @@ async function executeFollow(action) {
 
   try {
     const profileUrl = action.prospect.profile_url;
+    const linkedinId = action.prospect.linkedin_id || extractLinkedInIdFromUrl(profileUrl);
+
+    // Check if we're already on this profile by comparing LinkedIn ID
+    const currentUrl = window.location.href;
+    const isOnProfile = currentUrl.includes('/in/') &&
+                        (currentUrl.includes(linkedinId) || currentUrl.includes(profileUrl.replace('https://www.linkedin.com', '')));
+
+    console.log(`[ActionExecutor] URL check - LinkedIn ID: ${linkedinId}, Current URL: ${currentUrl}, On profile: ${isOnProfile}`);
 
     // Navigate to profile if not already there
-    if (!window.location.href.includes(profileUrl.replace('https://www.linkedin.com', ''))) {
+    if (!isOnProfile) {
+      console.log('[ActionExecutor] Navigating to profile...');
       window.location.href = profileUrl;
       return { success: true, message: 'Navigating to profile', navigating: true };
     }
+
+    console.log('[ActionExecutor] Already on profile, proceeding with follow action...');
 
     // Wait for page to load
     await sleep(2000);
@@ -456,58 +537,124 @@ async function executeFollow(action) {
 
     await sleep(500);
 
-    // Try to find visible Follow button first
-    let followButton = actionContainer.querySelector(selectors.PROFILE.FOLLOW_BUTTON);
+    // Wait for page to fully stabilize
+    await sleep(1500);
 
-    // Make sure it's actually a Follow button, not Following
-    if (followButton && followButton.getAttribute('aria-label')?.includes('Following')) {
+    // Check if already following (look for "Following" button ONLY in main action container)
+    const alreadyFollowing = actionContainer.querySelector('button[aria-label*="Following"]');
+    if (alreadyFollowing) {
       console.log('[ActionExecutor] Already following this person');
       return { success: true, message: 'Already following this person' };
     }
 
-    // If Follow not visible, check More menu (Connect might be shown instead)
-    if (!followButton) {
-      console.log('[ActionExecutor] Follow button not visible, checking More menu...');
+    // Try to find visible Follow button ONLY within the main action container
+    // This avoids clicking Follow buttons for recommended users in sidebar
+    let followButton = actionContainer.querySelector(selectors.PROFILE.FOLLOW_BUTTON) ||
+                       actionContainer.querySelector('button[aria-label*="Follow"]:not([aria-label*="Following"])');
+
+    // Verify the button is for the main profile (should be in action container)
+    if (followButton) {
+      console.log('[ActionExecutor] Found Follow button in main action container, clicking...');
+      followButton.click();
       await sleep(1000);
+      console.log('[ActionExecutor] Now following this person');
+      return { success: true, message: `Now following ${action.prospect.full_name}` };
+    }
 
-      // Find More button in container
-      let moreButton = actionContainer.querySelector(selectors.PROFILE.MORE_BUTTON);
+    // Follow not visible in action container, need to check More menu
+    console.log('[ActionExecutor] Follow button not visible in action container, checking More menu...');
+    await sleep(1000);
 
-      // Fallback: look for button with text "More"
+    // Find More button ONLY within the main action container - try multiple times
+    let moreButton = null;
+    let retryCount = 0;
+    const maxRetries = 3;
+
+    while (!moreButton && retryCount < maxRetries) {
+      moreButton = actionContainer.querySelector(selectors.PROFILE.MORE_BUTTON) ||
+                   actionContainer.querySelector('button[aria-label*="More actions"]') ||
+                   actionContainer.querySelector('button[aria-label="More"]');
+
+      // Fallback: look for button containing "More" text within action container only
       if (!moreButton) {
         const buttons = actionContainer.querySelectorAll('button');
         for (const btn of buttons) {
-          if (btn.textContent.trim() === 'More') {
+          const text = btn.textContent.trim();
+          const ariaLabel = btn.getAttribute('aria-label') || '';
+          if (text === 'More' || ariaLabel.includes('More')) {
             moreButton = btn;
+            console.log('[ActionExecutor] Found More button via text/aria search in action container');
             break;
           }
         }
       }
 
       if (!moreButton) {
-        console.error('[ActionExecutor] More button not found');
-        return { success: false, message: 'Could not find Follow or More button' };
+        retryCount++;
+        console.log(`[ActionExecutor] More button not found, retry ${retryCount}/${maxRetries}...`);
+        await sleep(1500);
       }
-
-      console.log('[ActionExecutor] Clicking More button...');
-      moreButton.click();
-
-      // Wait for dropdown to appear
-      await sleep(2000);
-
-      // Find Follow in dropdown (dropdown appears in body, not in container)
-      followButton = document.querySelector(selectors.PROFILE.DROPDOWN_FOLLOW);
-
-      if (!followButton) {
-        console.error('[ActionExecutor] Follow button not found in More menu');
-        return { success: false, message: 'Follow option not found in More menu' };
-      }
-
-      await sleep(500);
     }
 
-    // Click Follow button
-    console.log('[ActionExecutor] Clicking Follow button...');
+    if (!moreButton) {
+      console.error('[ActionExecutor] More button not found in action container after retries');
+      return { success: false, message: 'Could not find Follow or More button in main profile actions' };
+    }
+
+    // Scroll the More button into view to ensure it's clickable
+    moreButton.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    await sleep(500);
+
+    console.log('[ActionExecutor] Clicking More button...');
+    moreButton.click();
+
+    // Wait for dropdown to appear
+    await sleep(1500);
+
+    // Find Follow in dropdown - look for the dropdown item with aria-label containing "Follow"
+    // The HTML structure is: div.artdeco-dropdown__item[aria-label*="Follow"][role="button"]
+    followButton = document.querySelector('div.artdeco-dropdown__item[aria-label*="Follow"][role="button"]') ||
+                   document.querySelector('.artdeco-dropdown__content div[aria-label*="Follow"][role="button"]');
+
+    // Fallback: search all dropdown items for one with "Follow" in aria-label
+    if (!followButton) {
+      const dropdownItems = document.querySelectorAll('div.artdeco-dropdown__item[role="button"]');
+      console.log(`[ActionExecutor] Searching ${dropdownItems.length} dropdown items for Follow...`);
+
+      for (const item of dropdownItems) {
+        const ariaLabel = item.getAttribute('aria-label') || '';
+        const text = item.textContent.trim();
+        console.log(`[ActionExecutor] Dropdown item: aria-label="${ariaLabel}", text="${text}"`);
+
+        // Match aria-label starting with "Follow " (e.g., "Follow somia faisal")
+        // but not "Following" or "Unfollow"
+        if (ariaLabel.startsWith('Follow ') && !ariaLabel.includes('Following') && !ariaLabel.includes('Unfollow')) {
+          followButton = item;
+          console.log('[ActionExecutor] Found Follow button via aria-label search');
+          break;
+        }
+
+        // Also check if text content is exactly "Follow"
+        if (text === 'Follow') {
+          followButton = item;
+          console.log('[ActionExecutor] Found Follow button via text search');
+          break;
+        }
+      }
+    }
+
+    if (!followButton) {
+      // Close dropdown by pressing Escape
+      document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', keyCode: 27 }));
+      await sleep(300);
+      console.error('[ActionExecutor] Follow button not found in More menu dropdown');
+      return { success: false, message: 'Follow option not found in More menu' };
+    }
+
+    await sleep(300);
+
+    // Click Follow button in dropdown
+    console.log('[ActionExecutor] Clicking Follow button in dropdown...');
     followButton.click();
     await sleep(1000);
 
@@ -536,33 +683,81 @@ async function executeMessage(action) {
 
   try {
     const profileUrl = action.prospect.profile_url;
+    const linkedinId = action.prospect.linkedin_id || extractLinkedInIdFromUrl(profileUrl);
+
+    // Check if we're already on this profile by comparing LinkedIn ID
+    const currentUrl = window.location.href;
+    const isOnProfile = currentUrl.includes('/in/') &&
+                        (currentUrl.includes(linkedinId) || currentUrl.includes(profileUrl.replace('https://www.linkedin.com', '')));
+
+    console.log(`[ActionExecutor] Message - LinkedIn ID: ${linkedinId}, On profile: ${isOnProfile}`);
 
     // Navigate to profile if not already there
-    if (!window.location.href.includes(profileUrl.replace('https://www.linkedin.com', ''))) {
+    if (!isOnProfile) {
+      console.log('[ActionExecutor] Navigating to profile for message:', profileUrl);
       window.location.href = profileUrl;
       return { success: true, message: 'Navigating to profile', navigating: true };
     }
 
-    // Wait for page to load
-    await sleep(1000);
+    console.log('[ActionExecutor] Already on profile, proceeding with message...');
 
-    // Get main profile action container
+    // Wait for page to fully load
+    await sleep(4000);
+
+    // Get main profile action container with retries
     console.log('[ActionExecutor] Looking for Message button...');
-    const actionContainer = getMainProfileActionContainer();
-    if (!actionContainer) {
-      return { success: false, message: 'Could not find profile action buttons' };
+    let actionContainer = null;
+    let retryCount = 0;
+    const maxRetries = 5;
+
+    while (!actionContainer && retryCount < maxRetries) {
+      actionContainer = getMainProfileActionContainer();
+      if (!actionContainer) {
+        retryCount++;
+        console.log(`[ActionExecutor] Action container not found, retry ${retryCount}/${maxRetries}...`);
+        await sleep(1500);
+      }
     }
 
-    await sleep(500);
+    if (!actionContainer) {
+      return { success: false, message: 'Could not find profile action buttons after retries' };
+    }
 
-    // Find Message button in main profile area
-    const messageButton = actionContainer.querySelector(selectors.PROFILE.MESSAGE_BUTTON);
+    await sleep(1000);
+
+    // Find Message button in main profile area with retries
+    let messageButton = null;
+    let msgRetry = 0;
+    const maxMsgRetries = 5;
+
+    while (!messageButton && msgRetry < maxMsgRetries) {
+      messageButton = actionContainer.querySelector(selectors.PROFILE.MESSAGE_BUTTON);
+      if (!messageButton) {
+        msgRetry++;
+        console.log(`[ActionExecutor] Message button not found, retry ${msgRetry}/${maxMsgRetries}...`);
+        await sleep(1500);
+      }
+    }
+
     if (!messageButton) {
-      console.error('[ActionExecutor] Message button not found in main profile area');
+      console.error('[ActionExecutor] Message button not found after retries');
       return { success: false, message: 'Message button not found (user may not be a 1st degree connection)' };
     }
 
     console.log('[ActionExecutor] Found Message button');
+    await sleep(500);
+
+    // Close any existing open message boxes first to ensure clean state
+    console.log('[ActionExecutor] Closing any existing message boxes...');
+    const existingCloseButtons = document.querySelectorAll('.msg-overlay-bubble-header__control[data-control-name="overlay.close_conversation_window"], .msg-overlay-bubble-header button[aria-label="Close your conversation"], button[aria-label="Close your conversation"]');
+    for (const closeBtn of existingCloseButtons) {
+      try {
+        closeBtn.click();
+        await sleep(300);
+      } catch (e) {
+        // Ignore errors
+      }
+    }
     await sleep(500);
 
     // Click Message button
@@ -574,7 +769,7 @@ async function executeMessage(action) {
     await sleep(3000);
 
     // Find message textbox (contenteditable div)
-    const messageTextbox = document.querySelector(selectors.MESSAGE.TEXTBOX);
+    let messageTextbox = document.querySelector(selectors.MESSAGE.TEXTBOX);
     if (!messageTextbox) {
       console.error('[ActionExecutor] Message textbox not found');
       return { success: false, message: 'Message compose area did not appear' };
@@ -596,42 +791,84 @@ async function executeMessage(action) {
     messageTextbox.focus();
     await sleep(500);
 
-    // LinkedIn uses contenteditable div - use execCommand insertHTML
-    document.execCommand('insertHTML', false, messageContent);
+    // Clear the textbox first
+    messageTextbox.innerHTML = '<p><br></p>';
+    messageTextbox.dispatchEvent(new Event('input', { bubbles: true }));
+    await sleep(300);
+
+    // Method 1: Set innerHTML with paragraph wrapper (LinkedIn's format)
+    messageTextbox.focus();
+    messageTextbox.innerHTML = `<p>${messageContent}</p>`;
+
+    // Trigger input events to notify LinkedIn's React handlers
+    messageTextbox.dispatchEvent(new Event('input', { bubbles: true }));
+    messageTextbox.dispatchEvent(new Event('change', { bubbles: true }));
     await sleep(500);
 
-    console.log('[ActionExecutor] Message typed successfully');
+    // Verify message was inserted
+    const insertedText = messageTextbox.innerText.trim();
+    console.log('[ActionExecutor] Inserted text length:', insertedText.length);
 
-    // Send the message using Ctrl+Enter and Enter
-    console.log('[ActionExecutor] Sending message with Ctrl+Enter...');
+    if (!insertedText || insertedText.length < 3) {
+      console.log('[ActionExecutor] Method 1 failed, trying insertText...');
 
-    // Try Ctrl+Enter first
-    const ctrlEnterEvent = new KeyboardEvent('keydown', {
-      key: 'Enter',
-      code: 'Enter',
-      keyCode: 13,
-      which: 13,
-      ctrlKey: true,
-      bubbles: true,
-      cancelable: true
-    });
-    messageTextbox.dispatchEvent(ctrlEnterEvent);
-    await sleep(500);
+      // Method 2: Use insertText command
+      messageTextbox.focus();
+      messageTextbox.innerHTML = '';
+      await sleep(200);
+      document.execCommand('insertText', false, messageContent);
+      messageTextbox.dispatchEvent(new Event('input', { bubbles: true }));
+      await sleep(500);
+    }
 
-    // Also try plain Enter as backup
-    console.log('[ActionExecutor] Sending message with Enter...');
-    const enterEvent = new KeyboardEvent('keydown', {
-      key: 'Enter',
-      code: 'Enter',
-      keyCode: 13,
-      which: 13,
-      bubbles: true,
-      cancelable: true
-    });
-    messageTextbox.dispatchEvent(enterEvent);
+    console.log('[ActionExecutor] Message typed:', messageTextbox.innerText.substring(0, 50) + '...');
+
+    // Wait a moment for LinkedIn to enable the send button
     await sleep(1000);
 
-    console.log('[ActionExecutor] Message sent');
+    // Send the message - find and click the Send button
+    console.log('[ActionExecutor] Looking for Send button...');
+
+    // Find send button with multiple selectors
+    let sendButton = document.querySelector('button.msg-form__send-button:not([disabled])') ||
+                     document.querySelector('button[type="submit"].msg-form__send-button:not([disabled])') ||
+                     document.querySelector('form.msg-form button[type="submit"]:not([disabled])') ||
+                     document.querySelector(selectors.MESSAGE.SEND_BUTTON);
+
+    // Wait for send button to become enabled
+    let sendRetries = 0;
+    while ((!sendButton || sendButton.disabled) && sendRetries < 5) {
+      sendRetries++;
+      console.log(`[ActionExecutor] Send button not ready, retry ${sendRetries}/5...`);
+      await sleep(500);
+      sendButton = document.querySelector('button.msg-form__send-button:not([disabled])') ||
+                   document.querySelector('button[type="submit"].msg-form__send-button:not([disabled])');
+    }
+
+    if (sendButton && !sendButton.disabled) {
+      console.log('[ActionExecutor] Clicking Send button...');
+      sendButton.click();
+      await sleep(1000);
+      console.log('[ActionExecutor] Message sent via Send button');
+    } else {
+      // Fallback: Try keyboard shortcuts
+      console.log('[ActionExecutor] Send button not found/disabled, trying Ctrl+Enter...');
+      messageTextbox.focus();
+
+      const ctrlEnterEvent = new KeyboardEvent('keydown', {
+        key: 'Enter',
+        code: 'Enter',
+        keyCode: 13,
+        which: 13,
+        ctrlKey: true,
+        bubbles: true,
+        cancelable: true
+      });
+      messageTextbox.dispatchEvent(ctrlEnterEvent);
+      await sleep(1000);
+
+      console.log('[ActionExecutor] Attempted to send via Ctrl+Enter');
+    }
 
     // Close the message box
     console.log('[ActionExecutor] Closing message box...');
@@ -680,49 +917,86 @@ async function executeEmail(action) {
 
   try {
     const profileUrl = action.prospect.profile_url;
+    const linkedinId = action.prospect.linkedin_id || extractLinkedInIdFromUrl(profileUrl);
+
+    // Check if we're already on this profile by comparing LinkedIn ID
+    const currentUrl = window.location.href;
+    const isOnProfile = currentUrl.includes('/in/') &&
+                        (currentUrl.includes(linkedinId) || currentUrl.includes(profileUrl.replace('https://www.linkedin.com', '')));
+
+    console.log(`[ActionExecutor] Email action - LinkedIn ID: ${linkedinId}, Current URL: ${currentUrl}, On profile: ${isOnProfile}`);
 
     // Navigate to profile if not already there
-    if (!window.location.href.includes(profileUrl.replace('https://www.linkedin.com', ''))) {
+    if (!isOnProfile) {
       console.log('[ActionExecutor] Navigating to profile for email extraction:', profileUrl);
       window.location.href = profileUrl;
       return { success: true, message: 'Navigating to profile', navigating: true };
     }
 
-    // Wait for page to load
-    await sleep(2000);
+    console.log('[ActionExecutor] Already on profile, proceeding with email extraction...');
 
-    // Find the Contact Info link
-    const contactInfoLink = document.querySelector(selectors.CONTACT_INFO.OPENER);
+    // Wait for page to fully load
+    await sleep(3000);
+
+    // Find the Contact Info link (retry a few times)
+    let contactInfoLink = null;
+    for (let i = 0; i < 3; i++) {
+      contactInfoLink = document.querySelector(selectors.CONTACT_INFO.OPENER);
+      if (contactInfoLink) break;
+      console.log(`[ActionExecutor] Contact Info link not found, retry ${i + 1}/3...`);
+      await sleep(1500);
+    }
 
     if (!contactInfoLink) {
-      console.log('[ActionExecutor] Contact Info link not found');
+      console.log('[ActionExecutor] Contact Info link not found after retries');
       return { success: true, message: 'Contact Info not available', email: null };
     }
 
     console.log('[ActionExecutor] Opening Contact Info overlay...');
     contactInfoLink.click();
 
-    // Wait for modal to appear
-    await sleep(2000);
+    // Wait for modal to appear with retries (increased timeout)
+    let modal = null;
+    for (let i = 0; i < 8; i++) {
+      await sleep(1500);
+      modal = document.querySelector(selectors.CONTACT_INFO.MODAL) ||
+              document.querySelector('.artdeco-modal__content') ||
+              document.querySelector('.artdeco-modal') ||
+              document.querySelector('[data-test-modal]') ||
+              document.querySelector('div[role="dialog"]');
+      if (modal) {
+        console.log('[ActionExecutor] Contact Info modal appeared');
+        break;
+      }
+      console.log(`[ActionExecutor] Waiting for modal to appear... (${i + 1}/8)`);
+    }
 
-    // Check if modal appeared
-    const modal = document.querySelector(selectors.CONTACT_INFO.MODAL);
     if (!modal) {
-      console.log('[ActionExecutor] Contact Info modal did not appear');
+      console.log('[ActionExecutor] Contact Info modal did not appear after waiting');
       return { success: true, message: 'Contact Info modal did not open', email: null };
     }
 
-    // Try to find email in the modal
-    let emailLink = modal.querySelector(selectors.CONTACT_INFO.EMAIL_LINK);
+    // Extra wait for modal content to fully load
+    console.log('[ActionExecutor] Waiting for modal content to load...');
+    await sleep(3000);
 
-    // Try alternative selector
-    if (!emailLink) {
-      emailLink = modal.querySelector(selectors.CONTACT_INFO.EMAIL_LINK_ALT);
-    }
+    // Try to find email in the modal with retries
+    let emailLink = null;
+    for (let i = 0; i < 5; i++) {
+      // Try multiple selectors
+      emailLink = modal.querySelector(selectors.CONTACT_INFO.EMAIL_LINK) ||
+                  modal.querySelector(selectors.CONTACT_INFO.EMAIL_LINK_ALT) ||
+                  modal.querySelector('a[href^="mailto:"]') ||
+                  document.querySelector('.artdeco-modal a[href^="mailto:"]') ||
+                  document.querySelector('div[role="dialog"] a[href^="mailto:"]');
 
-    // Try any mailto link in modal
-    if (!emailLink) {
-      emailLink = modal.querySelector('a[href^="mailto:"]');
+      if (emailLink) {
+        console.log('[ActionExecutor] Email link found in modal');
+        break;
+      }
+
+      console.log(`[ActionExecutor] Email link not found yet, retry ${i + 1}/5...`);
+      await sleep(1000);
     }
 
     let email = null;
@@ -813,18 +1087,41 @@ async function executeSmartConnect(action) {
     }
 
     // Wait for page to load
-    await sleep(2000);
+    await sleep(3000);
 
-    // Get main profile action container
-    const actionContainer = getMainProfileActionContainer();
-    if (!actionContainer) {
-      return { success: false, message: 'Could not find profile action buttons' };
+    // Get main profile action container with retries
+    let actionContainer = null;
+    let retryCount = 0;
+    const maxRetries = 5;
+
+    while (!actionContainer && retryCount < maxRetries) {
+      actionContainer = getMainProfileActionContainer();
+      if (!actionContainer) {
+        retryCount++;
+        console.log(`[ActionExecutor] Action container not found, retry ${retryCount}/${maxRetries}...`);
+        await sleep(1500);
+      }
     }
 
-    await sleep(500);
+    if (!actionContainer) {
+      return { success: false, message: 'Could not find profile action buttons after retries' };
+    }
+
+    // Wait for buttons to fully load
+    await sleep(2000);
 
     // Check connection status by looking for Message button (only visible for 1st degree connections)
-    const messageButton = actionContainer.querySelector(selectors.PROFILE.MESSAGE_BUTTON);
+    // Retry a few times to make sure the button has loaded
+    let messageButton = null;
+    for (let i = 0; i < 3; i++) {
+      messageButton = actionContainer.querySelector(selectors.PROFILE.MESSAGE_BUTTON);
+      if (messageButton && messageButton.offsetParent !== null) {
+        break;
+      }
+      console.log(`[ActionExecutor] Checking for Message button... (${i + 1}/3)`);
+      await sleep(1000);
+    }
+
     const isConnected = messageButton && messageButton.offsetParent !== null; // Check if visible
 
     console.log('[ActionExecutor] Smart Connect - Is connected:', isConnected);
@@ -839,6 +1136,18 @@ async function executeSmartConnect(action) {
         return { success: true, message: 'Already connected but no message template provided', executed_action: 'none' };
       }
 
+      // Close any existing open message boxes first
+      const existingCloseButtons = document.querySelectorAll('.msg-overlay-bubble-header__control[data-control-name="overlay.close_conversation_window"], .msg-overlay-bubble-header button[aria-label="Close your conversation"], button[aria-label="Close your conversation"]');
+      for (const closeBtn of existingCloseButtons) {
+        try {
+          closeBtn.click();
+          await sleep(300);
+        } catch (e) {
+          // Ignore errors
+        }
+      }
+      await sleep(500);
+
       // Click Message button
       messageButton.click();
       await sleep(3000);
@@ -849,41 +1158,59 @@ async function executeSmartConnect(action) {
         return { success: false, message: 'Message compose area did not appear' };
       }
 
-      // Type and send message
+      // Clear and type new message
       messageTextbox.focus();
       await sleep(500);
-      document.execCommand('insertHTML', false, messageContent);
+      messageTextbox.innerHTML = '<p><br></p>';
+      messageTextbox.dispatchEvent(new Event('input', { bubbles: true }));
+      await sleep(300);
+
+      // Insert message with paragraph wrapper
+      messageTextbox.focus();
+      messageTextbox.innerHTML = `<p>${messageContent}</p>`;
+      messageTextbox.dispatchEvent(new Event('input', { bubbles: true }));
+      messageTextbox.dispatchEvent(new Event('change', { bubbles: true }));
       await sleep(500);
 
-      // Send with Ctrl+Enter
-      const ctrlEnterEvent = new KeyboardEvent('keydown', {
-        key: 'Enter',
-        code: 'Enter',
-        keyCode: 13,
-        which: 13,
-        ctrlKey: true,
-        bubbles: true,
-        cancelable: true
-      });
-      messageTextbox.dispatchEvent(ctrlEnterEvent);
-      await sleep(500);
+      // Fallback if innerHTML didn't work
+      if (!messageTextbox.innerText.trim() || messageTextbox.innerText.trim().length < 3) {
+        messageTextbox.focus();
+        messageTextbox.innerHTML = '';
+        document.execCommand('insertText', false, messageContent);
+        messageTextbox.dispatchEvent(new Event('input', { bubbles: true }));
+        await sleep(500);
+      }
 
-      // Also try plain Enter
-      const enterEvent = new KeyboardEvent('keydown', {
-        key: 'Enter',
-        code: 'Enter',
-        keyCode: 13,
-        which: 13,
-        bubbles: true,
-        cancelable: true
-      });
-      messageTextbox.dispatchEvent(enterEvent);
-      await sleep(500);
+      console.log('[ActionExecutor] Message typed:', messageTextbox.innerText.substring(0, 30) + '...');
+      await sleep(1000);
 
-      // Try clicking send button
-      const sendButton = document.querySelector(selectors.MESSAGE.SEND_BUTTON);
+      // Find and click send button
+      let sendButton = document.querySelector('button.msg-form__send-button:not([disabled])') ||
+                       document.querySelector(selectors.MESSAGE.SEND_BUTTON);
+
+      // Wait for send button to be enabled
+      let sendRetries = 0;
+      while ((!sendButton || sendButton.disabled) && sendRetries < 5) {
+        sendRetries++;
+        await sleep(500);
+        sendButton = document.querySelector('button.msg-form__send-button:not([disabled])');
+      }
+
       if (sendButton && !sendButton.disabled) {
         sendButton.click();
+        await sleep(500);
+      } else {
+        // Fallback: Ctrl+Enter
+        const ctrlEnterEvent = new KeyboardEvent('keydown', {
+          key: 'Enter',
+          code: 'Enter',
+          keyCode: 13,
+          which: 13,
+          ctrlKey: true,
+          bubbles: true,
+          cancelable: true
+        });
+        messageTextbox.dispatchEvent(ctrlEnterEvent);
         await sleep(500);
       }
 
@@ -903,10 +1230,21 @@ async function executeSmartConnect(action) {
         return { success: true, message: 'Connection request already pending', executed_action: 'none' };
       }
 
-      // Find Connect button
-      let connectButton = actionContainer.querySelector(selectors.PROFILE.CONNECT_BUTTON);
+      // Find Connect button with retries
+      let connectButton = null;
+      let connectRetry = 0;
+      const maxConnectRetries = 3;
 
-      // If Connect not visible, check More menu
+      while (!connectButton && connectRetry < maxConnectRetries) {
+        connectButton = actionContainer.querySelector(selectors.PROFILE.CONNECT_BUTTON);
+        if (!connectButton) {
+          connectRetry++;
+          console.log(`[ActionExecutor] Connect button not visible, retry ${connectRetry}/${maxConnectRetries}...`);
+          await sleep(1000);
+        }
+      }
+
+      // If Connect not visible after retries, check More menu
       if (!connectButton) {
         let moreButton = actionContainer.querySelector(selectors.PROFILE.MORE_BUTTON);
         if (!moreButton) {
@@ -923,6 +1261,8 @@ async function executeSmartConnect(action) {
           return { success: false, message: 'Could not find Connect or More button' };
         }
 
+        moreButton.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        await sleep(500);
         moreButton.click();
         await sleep(2000);
         connectButton = document.querySelector(selectors.PROFILE.DROPDOWN_CONNECT);
@@ -1000,22 +1340,47 @@ async function executeWarmConnect(action) {
 
   try {
     const profileUrl = action.prospect.profile_url;
+    const linkedinId = action.prospect.linkedin_id || extractLinkedInIdFromUrl(profileUrl);
+
+    // Check if we're already on this profile by comparing LinkedIn ID
+    const currentUrl = window.location.href;
+    const isOnProfile = currentUrl.includes('/in/') &&
+                        (currentUrl.includes(linkedinId) || currentUrl.includes(profileUrl.replace('https://www.linkedin.com', '')));
+
+    console.log(`[ActionExecutor] WarmConnect - LinkedIn ID: ${linkedinId}, On profile: ${isOnProfile}`);
 
     // Navigate to profile if not already there
-    if (!window.location.href.includes(profileUrl.replace('https://www.linkedin.com', ''))) {
+    if (!isOnProfile) {
       console.log('[ActionExecutor] Navigating to profile for visit_follow_connect:', profileUrl);
       window.location.href = profileUrl;
       return { success: true, message: 'Navigating to profile', navigating: true };
     }
 
-    // Wait for page to load
-    await sleep(2000);
+    console.log('[ActionExecutor] Already on profile, proceeding with warm connect...');
 
-    // Get main profile action container
-    const actionContainer = getMainProfileActionContainer();
-    if (!actionContainer) {
-      return { success: false, message: 'Could not find profile action buttons' };
+    // Wait for page to load
+    await sleep(3000);
+
+    // Get main profile action container with retries
+    let actionContainer = null;
+    let retryCount = 0;
+    const maxRetries = 5;
+
+    while (!actionContainer && retryCount < maxRetries) {
+      actionContainer = getMainProfileActionContainer();
+      if (!actionContainer) {
+        retryCount++;
+        console.log(`[ActionExecutor] Action container not found, retry ${retryCount}/${maxRetries}...`);
+        await sleep(1500);
+      }
     }
+
+    if (!actionContainer) {
+      return { success: false, message: 'Could not find profile action buttons after retries' };
+    }
+
+    // Wait for all buttons to fully load
+    await sleep(2000);
 
     // Step 1: Visit (just being on the page counts)
     console.log('[ActionExecutor] Warm Connect Step 1: Visiting profile...');
@@ -1023,7 +1388,16 @@ async function executeWarmConnect(action) {
 
     // Step 2: Follow
     console.log('[ActionExecutor] Warm Connect Step 2: Following profile...');
-    const followButton = actionContainer.querySelector(selectors.PROFILE.FOLLOW_BUTTON);
+
+    // Try to find follow button with retries
+    let followButton = null;
+    for (let i = 0; i < 3; i++) {
+      followButton = actionContainer.querySelector(selectors.PROFILE.FOLLOW_BUTTON);
+      if (followButton) break;
+      console.log(`[ActionExecutor] Follow button not found, retry ${i + 1}/3...`);
+      await sleep(1000);
+    }
+
     if (followButton && !followButton.textContent.includes('Following')) {
       followButton.click();
       await sleep(1500);
@@ -1043,16 +1417,36 @@ async function executeWarmConnect(action) {
       return { success: true, message: 'Visited, followed. Connection already pending.' };
     }
 
-    // Check if already connected
-    const messageButton = actionContainer.querySelector(selectors.PROFILE.MESSAGE_BUTTON);
+    // Check if already connected (retry a few times to make sure buttons are loaded)
+    let messageButton = null;
+    for (let i = 0; i < 3; i++) {
+      messageButton = actionContainer.querySelector(selectors.PROFILE.MESSAGE_BUTTON);
+      if (messageButton && messageButton.offsetParent !== null) {
+        break;
+      }
+      await sleep(1000);
+    }
+
     if (messageButton && messageButton.offsetParent !== null) {
       return { success: true, message: 'Visited, followed. Already connected.' };
     }
 
-    // Find Connect button
-    let connectButton = actionContainer.querySelector(selectors.PROFILE.CONNECT_BUTTON);
+    // Find Connect button with retries
+    let connectButton = null;
+    let connectRetry = 0;
+    const maxConnectRetries = 3;
+
+    while (!connectButton && connectRetry < maxConnectRetries) {
+      connectButton = actionContainer.querySelector(selectors.PROFILE.CONNECT_BUTTON);
+      if (!connectButton) {
+        connectRetry++;
+        console.log(`[ActionExecutor] Connect button not visible, retry ${connectRetry}/${maxConnectRetries}...`);
+        await sleep(1000);
+      }
+    }
 
     if (!connectButton) {
+      // Try More menu
       let moreButton = actionContainer.querySelector(selectors.PROFILE.MORE_BUTTON);
       if (!moreButton) {
         const buttons = actionContainer.querySelectorAll('button');
@@ -1065,6 +1459,8 @@ async function executeWarmConnect(action) {
       }
 
       if (moreButton) {
+        moreButton.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        await sleep(500);
         moreButton.click();
         await sleep(2000);
         connectButton = document.querySelector(selectors.PROFILE.DROPDOWN_CONNECT);
@@ -1244,6 +1640,18 @@ async function sendFallbackMessage(action) {
     return { success: true, message: 'No email found. Not connected, cannot send message.', executed_action: 'none' };
   }
 
+  // Close any existing open message boxes first
+  const existingCloseButtons = document.querySelectorAll('.msg-overlay-bubble-header__control[data-control-name="overlay.close_conversation_window"], .msg-overlay-bubble-header button[aria-label="Close your conversation"], button[aria-label="Close your conversation"]');
+  for (const closeBtn of existingCloseButtons) {
+    try {
+      closeBtn.click();
+      await sleep(300);
+    } catch (e) {
+      // Ignore errors
+    }
+  }
+  await sleep(500);
+
   // Send message
   messageButton.click();
   await sleep(3000);
@@ -1253,28 +1661,59 @@ async function sendFallbackMessage(action) {
     return { success: false, message: 'Message compose area did not appear' };
   }
 
+  // Clear and type new message
   messageTextbox.focus();
   await sleep(500);
-  document.execCommand('insertHTML', false, fallbackMessage);
+  messageTextbox.innerHTML = '<p><br></p>';
+  messageTextbox.dispatchEvent(new Event('input', { bubbles: true }));
+  await sleep(300);
+
+  // Insert message with paragraph wrapper
+  messageTextbox.focus();
+  messageTextbox.innerHTML = `<p>${fallbackMessage}</p>`;
+  messageTextbox.dispatchEvent(new Event('input', { bubbles: true }));
+  messageTextbox.dispatchEvent(new Event('change', { bubbles: true }));
   await sleep(500);
 
-  // Send with Ctrl+Enter
-  const ctrlEnterEvent = new KeyboardEvent('keydown', {
-    key: 'Enter',
-    code: 'Enter',
-    keyCode: 13,
-    which: 13,
-    ctrlKey: true,
-    bubbles: true,
-    cancelable: true
-  });
-  messageTextbox.dispatchEvent(ctrlEnterEvent);
-  await sleep(500);
+  // Fallback if innerHTML didn't work
+  if (!messageTextbox.innerText.trim() || messageTextbox.innerText.trim().length < 3) {
+    messageTextbox.focus();
+    messageTextbox.innerHTML = '';
+    document.execCommand('insertText', false, fallbackMessage);
+    messageTextbox.dispatchEvent(new Event('input', { bubbles: true }));
+    await sleep(500);
+  }
 
-  // Try clicking send button
-  const sendButton = document.querySelector(selectors.MESSAGE.SEND_BUTTON);
+  console.log('[ActionExecutor] Fallback message typed');
+  await sleep(1000);
+
+  // Find and click send button
+  let sendButton = document.querySelector('button.msg-form__send-button:not([disabled])') ||
+                   document.querySelector(selectors.MESSAGE.SEND_BUTTON);
+
+  // Wait for send button to be enabled
+  let sendRetries = 0;
+  while ((!sendButton || sendButton.disabled) && sendRetries < 5) {
+    sendRetries++;
+    await sleep(500);
+    sendButton = document.querySelector('button.msg-form__send-button:not([disabled])');
+  }
+
   if (sendButton && !sendButton.disabled) {
     sendButton.click();
+    await sleep(500);
+  } else {
+    // Fallback: Ctrl+Enter
+    const ctrlEnterEvent = new KeyboardEvent('keydown', {
+      key: 'Enter',
+      code: 'Enter',
+      keyCode: 13,
+      which: 13,
+      ctrlKey: true,
+      bubbles: true,
+      cancelable: true
+    });
+    messageTextbox.dispatchEvent(ctrlEnterEvent);
     await sleep(500);
   }
 

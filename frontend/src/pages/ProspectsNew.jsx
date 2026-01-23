@@ -34,6 +34,7 @@ const ProspectsNew = () => {
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [isBulkTagModalOpen, setIsBulkTagModalOpen] = useState(false);
   const [selectedTagIds, setSelectedTagIds] = useState([]);
+  const [isAddProspectsOpen, setIsAddProspectsOpen] = useState(false);
 
   // Tags state
   const [isTagModalOpen, setIsTagModalOpen] = useState(false);
@@ -377,19 +378,109 @@ const ProspectsNew = () => {
                     ` • Filtered by "${tags.find(t => t.id === parseInt(filters.tag_id)).name}"`}
                 </p>
               </div>
-              {selectedProspects.length > 0 && (
-                <div className="flex space-x-2">
-                  <Button variant="primary" onClick={handleOpenBulkTagModal} size="sm">
-                    Assign Tags ({selectedProspects.length})
+              <div className="flex items-center space-x-2">
+                {/* Add Prospects Dropdown */}
+                <div className="relative">
+                  <Button
+                    variant="primary"
+                    size="sm"
+                    onClick={() => setIsAddProspectsOpen(!isAddProspectsOpen)}
+                  >
+                    <svg className="w-4 h-4 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                    </svg>
+                    Add Prospects
                   </Button>
-                  <Button variant="danger" onClick={handleBulkDelete} size="sm">
-                    Delete ({selectedProspects.length})
-                  </Button>
-                  <Button variant="secondary" onClick={clearSelectedProspects} size="sm">
-                    Clear
-                  </Button>
+
+                  {isAddProspectsOpen && (
+                    <>
+                      {/* Backdrop */}
+                      <div
+                        className="fixed inset-0 z-10"
+                        onClick={() => setIsAddProspectsOpen(false)}
+                      />
+
+                      {/* Dropdown */}
+                      <div className="absolute right-0 mt-2 w-80 bg-white rounded-lg shadow-lg border border-gray-200 z-20">
+                        <div className="p-4">
+                          <h3 className="text-sm font-semibold text-gray-900 mb-3">Add Prospects from LinkedIn</h3>
+
+                          {/* Option 1: Search */}
+                          <a
+                            href="https://www.linkedin.com/search/results/people/?keywords=%27%27&origin=SWITCH_SEARCH_VERTICAL"
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="flex items-center p-3 rounded-lg border border-gray-200 hover:bg-blue-50 hover:border-linkedin transition-colors mb-2"
+                            onClick={() => setIsAddProspectsOpen(false)}
+                          >
+                            <div className="flex-shrink-0 w-10 h-10 bg-blue-100 rounded-lg flex items-center justify-center">
+                              <svg className="w-5 h-5 text-linkedin" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                              </svg>
+                            </div>
+                            <div className="ml-3">
+                              <p className="text-sm font-medium text-gray-900">From Search</p>
+                              <p className="text-xs text-gray-500">Search for people on LinkedIn</p>
+                            </div>
+                          </a>
+
+                          {/* Option 2: Network */}
+                          <a
+                            href="https://www.linkedin.com/mynetwork/invite-connect/connections/"
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="flex items-center p-3 rounded-lg border border-gray-200 hover:bg-blue-50 hover:border-linkedin transition-colors"
+                            onClick={() => setIsAddProspectsOpen(false)}
+                          >
+                            <div className="flex-shrink-0 w-10 h-10 bg-green-100 rounded-lg flex items-center justify-center">
+                              <svg className="w-5 h-5 text-green-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
+                              </svg>
+                            </div>
+                            <div className="ml-3">
+                              <p className="text-sm font-medium text-gray-900">From Network</p>
+                              <p className="text-xs text-gray-500">Import your existing connections</p>
+                            </div>
+                          </a>
+
+                          {/* Instructions */}
+                          <div className="mt-4 p-3 bg-amber-50 rounded-lg border border-amber-200">
+                            <div className="flex">
+                              <svg className="w-5 h-5 text-amber-500 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                              </svg>
+                              <div className="ml-2">
+                                <p className="text-xs font-medium text-amber-800">How to extract prospects:</p>
+                                <ol className="text-xs text-amber-700 mt-1 list-decimal list-inside space-y-1">
+                                  <li>Click a link above to open LinkedIn</li>
+                                  <li>Open the extension popup</li>
+                                  <li>Set your extraction limit</li>
+                                  <li>Click "Extract Prospects"</li>
+                                </ol>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    </>
+                  )}
                 </div>
-              )}
+
+                {/* Bulk Actions */}
+                {selectedProspects.length > 0 && (
+                  <>
+                    <Button variant="primary" onClick={handleOpenBulkTagModal} size="sm">
+                      Assign Tags ({selectedProspects.length})
+                    </Button>
+                    <Button variant="danger" onClick={handleBulkDelete} size="sm">
+                      Delete ({selectedProspects.length})
+                    </Button>
+                    <Button variant="secondary" onClick={clearSelectedProspects} size="sm">
+                      Clear
+                    </Button>
+                  </>
+                )}
+              </div>
             </div>
 
             {/* Filters */}

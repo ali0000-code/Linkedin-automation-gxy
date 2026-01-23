@@ -141,8 +141,39 @@ class QueueProcessor {
     if (this.currentAction) {
       console.log('[QueueProcessor] Completing interrupted action:', this.currentAction.action_type);
 
+      // Wait for page to fully load before executing
+      await this.sleep(3000);
+
       // We navigated to the profile, now execute the action
       const result = await this.executeCurrentAction();
+
+      // If action tries to navigate again, wait and retry once
+      if (result.navigating) {
+        console.log('[QueueProcessor] Action tried to navigate again, waiting and retrying...');
+        await this.sleep(5000);
+        const retryResult = await this.executeCurrentAction();
+        if (retryResult.navigating) {
+          console.error('[QueueProcessor] Action still wants to navigate after retry, marking as failed');
+          await this.reportActionResult({ success: false, message: 'Navigation loop detected' });
+          this.currentAction = null;
+          sessionStorage.removeItem(QUEUE_CURRENT_ACTION_KEY);
+          await this.sleep(2000);
+          await this.processLoop();
+          return;
+        }
+        // Use retry result
+        await this.reportActionResult(retryResult);
+        if (retryResult.success) {
+          this.stats.completed++;
+        } else {
+          this.stats.failed++;
+        }
+        this.currentAction = null;
+        sessionStorage.removeItem(QUEUE_CURRENT_ACTION_KEY);
+        await this.sleep(3000);
+        await this.processLoop();
+        return;
+      }
 
       // Report result to backend
       await this.reportActionResult(result);
@@ -158,10 +189,13 @@ class QueueProcessor {
       this.currentAction = null;
       sessionStorage.removeItem(QUEUE_CURRENT_ACTION_KEY);
 
-      // Wait a bit to ensure backend has processed the completion
+      // Wait for backend to process the completion before checking for more actions
       console.log('[QueueProcessor] Waiting for backend to process completion...');
-      await this.sleep(2000);
+      await this.sleep(3000);
     }
+
+    // Additional delay before checking for next action to ensure backend is in sync
+    await this.sleep(2000);
 
     // Continue processing
     await this.processLoop();
@@ -360,28 +394,29 @@ class QueueProcessor {
           if (noActionCount >= MAX_NO_ACTION_CHECKS) {
             console.log('[QueueProcessor] No more actions after multiple checks. Campaign completed!');
             this.notifyStatus('completed', 'All actions completed! Campaign finished.');
-            this.stop('Campaign completed - no more actions');
 
-            // Close this tab or navigate away
+            // Get campaign info BEFORE stopping (stop() clears currentAction)
+            const campaignId = this.currentAction?.campaign_id || null;
+            const actionType = this.currentAction?.action_type || null;
+
+            // Notify user (include campaign info for email modal)
             try {
-              // Get the last action's campaign info for the completion notification
-              const lastAction = this.currentAction;
-              const campaignId = lastAction?.campaign_id || null;
-              const actionType = lastAction?.action_type || null;
-
-              // Notify user (include campaign info for email modal)
               chrome.runtime.sendMessage({
                 type: 'CAMPAIGN_COMPLETED',
                 stats: this.stats,
                 campaignId: campaignId,
                 actionType: actionType
               }).catch(() => {});
-
-              // Navigate to LinkedIn feed instead of closing tab
-              window.location.href = 'https://www.linkedin.com/feed/';
             } catch (e) {
-              console.log('[QueueProcessor] Could not navigate away');
+              console.log('[QueueProcessor] Could not send completion message');
             }
+
+            // Stop the queue processor
+            this.stop('Campaign completed - no more actions');
+
+            // Navigate to LinkedIn feed
+            console.log('[QueueProcessor] Navigating to feed page...');
+            window.location.href = 'https://www.linkedin.com/feed/';
 
             return;
           }
@@ -421,6 +456,9 @@ class QueueProcessor {
 
         // Report result to backend
         await this.reportActionResult(result);
+
+        // Wait for backend to process completion
+        await this.sleep(2000);
 
         // Update stats
         if (result.success) {

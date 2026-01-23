@@ -5,7 +5,7 @@
  * Steps: Name -> Action Type -> Action Config (template/note) -> Tag Selection -> Save/Start
  */
 
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import Button from '../common/Button';
 import Spinner from '../common/Spinner';
@@ -52,10 +52,16 @@ const CampaignWizard = () => {
   // Filter tags that have prospects
   const tagsWithProspects = allTags.filter(tag => tag.prospects_count > 0);
 
-  // Mutations
-  const { mutate: createCampaign, isLoading: isCreating } = useCreateCampaign();
-  const { mutate: addProspects } = useAddProspects();
-  const { mutate: startCampaign } = useStartCampaign();
+  // Mutations - using mutateAsync for better control in chained operations
+  const { mutateAsync: createCampaign, isLoading: isCreating } = useCreateCampaign();
+  const { mutateAsync: addProspects, isLoading: isAddingProspects } = useAddProspects();
+  const { mutateAsync: startCampaign, isLoading: isStarting } = useStartCampaign();
+
+  // Combined loading state to prevent multiple clicks
+  const isSaving = isCreating || isAddingProspects || isStarting;
+
+  // Ref to prevent double-clicks during state transitions
+  const isSavingRef = useRef(false);
 
   const steps = [
     { number: 1, name: 'Campaign Name' },
@@ -89,7 +95,14 @@ const CampaignWizard = () => {
     setCurrentStep(prev => prev - 1);
   };
 
-  const handleSave = (shouldStart = false) => {
+  const handleSave = async (shouldStart = false) => {
+    // Prevent double-clicks using ref (more reliable than state)
+    if (isSavingRef.current) {
+      console.log('[CampaignWizard] Already saving, ignoring click');
+      return;
+    }
+    isSavingRef.current = true;
+
     const selectedAction = actions.find(a => a.id === campaignData.selectedAction);
     const isEmailAction = selectedAction?.key === 'email';
 
@@ -119,63 +132,77 @@ const CampaignWizard = () => {
       ],
     };
 
-    // Create campaign
-    createCampaign(payload, {
-      onSuccess: async (response) => {
-        const campaignId = response.campaign.id;
+    console.log('[CampaignWizard] Creating campaign, shouldStart:', shouldStart);
 
-        // For email campaigns, tag_id handles prospect selection on start
-        if (isEmailAction) {
-          if (shouldStart) {
-            startCampaign(campaignId, {
-              onSuccess: () => {
-                navigate('/campaign/list');
-              },
-            });
-          } else {
-            navigate('/campaign/list');
-          }
-          return;
+    try {
+      // Step 1: Create campaign
+      const response = await createCampaign(payload);
+      const campaignId = response.campaign.id;
+      console.log('[CampaignWizard] Campaign created:', campaignId);
+
+      // For email campaigns, tag_id handles prospect selection on start
+      if (isEmailAction) {
+        if (shouldStart) {
+          console.log('[CampaignWizard] Starting email campaign...');
+          await startCampaign(campaignId);
+          console.log('[CampaignWizard] Email campaign started');
         }
+        isSavingRef.current = false;
+        navigate('/campaign/list');
+        return;
+      }
 
-        // For other campaigns, fetch and add prospects manually
+      // Step 2: Fetch and add prospects for non-email campaigns
+      try {
+        console.log('[CampaignWizard] Fetching prospects for tags:', campaignData.selectedTags);
+        const prospectsResponse = await prospectService.getProspects({
+          tag_ids: campaignData.selectedTags.join(','),
+          per_page: 1000
+        });
+
+        const prospectIds = (prospectsResponse.data || []).map(p => p.id);
+        console.log('[CampaignWizard] Found prospects:', prospectIds.length);
+
+        // Step 3: Add prospects if any
+        if (prospectIds.length > 0) {
+          const addPromise = addProspects({ id: campaignId, prospectIds });
+          const addTimeoutPromise = new Promise((_, reject) =>
+            setTimeout(() => reject(new Error('Add prospects timeout after 15s')), 15000)
+          );
+          await Promise.race([addPromise, addTimeoutPromise]);
+          console.log('[CampaignWizard] Prospects added');
+        }
+      } catch (prospectError) {
+        console.error('[CampaignWizard] Error with prospects:', prospectError);
+        // Continue anyway - campaign is created
+      }
+
+      // Step 4: Start campaign if requested
+      if (shouldStart) {
+        console.log('[CampaignWizard] Starting campaign...', campaignId);
         try {
-          // Get ALL prospects for the selected tags (not just first page)
-          const prospectsResponse = await prospectService.getProspects({
-            tag_ids: campaignData.selectedTags.join(','),
-            per_page: 1000 // Fetch up to 1000 prospects for the campaign
-          });
-
-          const prospectIds = (prospectsResponse.data || []).map(p => p.id);
-
-          // Add prospects to campaign
-          if (prospectIds.length > 0) {
-            addProspects(
-              { id: campaignId, prospectIds },
-              {
-                onSuccess: () => {
-                  if (shouldStart) {
-                    // Start campaign immediately
-                    startCampaign(campaignId, {
-                      onSuccess: () => {
-                        navigate('/campaign/list');
-                      },
-                    });
-                  } else {
-                    navigate('/campaign/list');
-                  }
-                },
-              }
-            );
-          } else {
-            navigate('/campaign/list');
-          }
-        } catch (error) {
-          console.error('Failed to fetch prospects for tags:', error);
-          navigate('/campaign/list');
+          // Add timeout wrapper to detect if mutation is hanging
+          const startPromise = startCampaign(campaignId);
+          const timeoutPromise = new Promise((_, reject) =>
+            setTimeout(() => reject(new Error('Start campaign timeout after 15s')), 15000)
+          );
+          await Promise.race([startPromise, timeoutPromise]);
+          console.log('[CampaignWizard] Campaign started successfully');
+        } catch (startError) {
+          console.error('[CampaignWizard] Start campaign error:', startError);
+          // Continue to navigation even if start fails
         }
-      },
-    });
+      }
+
+      isSavingRef.current = false;
+      navigate('/campaign/list');
+
+    } catch (error) {
+      console.error('[CampaignWizard] Error:', error);
+      isSavingRef.current = false;
+      // If campaign was created but start failed, still navigate
+      navigate('/campaign/list');
+    }
   };
 
   const isStepValid = () => {
@@ -310,16 +337,16 @@ const CampaignWizard = () => {
               <Button
                 variant="secondary"
                 onClick={() => handleSave(false)}
-                disabled={!isStepValid() || isCreating}
+                disabled={!isStepValid() || isSaving}
               >
-                {isCreating ? <Spinner size="sm" /> : 'Save as Draft'}
+                {isSaving ? <Spinner size="sm" /> : 'Save as Draft'}
               </Button>
               <Button
                 variant="primary"
                 onClick={() => handleSave(true)}
-                disabled={!isStepValid() || isCreating}
+                disabled={!isStepValid() || isSaving}
               >
-                {isCreating ? <Spinner size="sm" /> : 'Save & Start'}
+                {isSaving ? <Spinner size="sm" /> : 'Save & Start'}
               </Button>
             </>
           )}

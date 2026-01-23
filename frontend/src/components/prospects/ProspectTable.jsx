@@ -4,7 +4,6 @@
  * Table display of prospects with actions (edit, delete).
  */
 
-import { CONNECTION_STATUS_LABELS, CONNECTION_STATUS_COLORS } from '../../utils/constants';
 import { getInitials } from '../../utils/helpers';
 import Tag from '../common/Tag';
 import Button from '../common/Button';
@@ -21,20 +20,6 @@ import { useDetachTag } from '../../hooks/useProspects';
  */
 const ProspectTable = ({ prospects = [], selectedProspects = [], onToggleProspect, onEdit, onDelete }) => {
   const detachTagMutation = useDetachTag();
-
-  /**
-   * Get badge color class by connection status
-   */
-  const getStatusBadgeClass = (status) => {
-    const colorMap = {
-      [CONNECTION_STATUS_COLORS.gray]: 'bg-gray-100 text-gray-700',
-      [CONNECTION_STATUS_COLORS.yellow]: 'bg-yellow-100 text-yellow-700',
-      [CONNECTION_STATUS_COLORS.green]: 'bg-green-100 text-green-700',
-      [CONNECTION_STATUS_COLORS.red]: 'bg-red-100 text-red-700',
-    };
-
-    return colorMap[CONNECTION_STATUS_COLORS[status]] || 'bg-gray-100 text-gray-700';
-  };
 
   /**
    * Handle tag removal
@@ -69,12 +54,6 @@ const ProspectTable = ({ prospects = [], selectedProspects = [], onToggleProspec
               </th>
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                 Email
-              </th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                Company
-              </th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                Status
               </th>
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                 Tags
@@ -150,25 +129,6 @@ const ProspectTable = ({ prospects = [], selectedProspects = [], onToggleProspec
                   ) : (
                     <span className="text-sm text-gray-400">-</span>
                   )}
-                </td>
-
-                {/* Company */}
-                <td className="px-6 py-4 whitespace-nowrap">
-                  <div className="text-sm text-gray-900">{prospect.company || '-'}</div>
-                  {prospect.location && (
-                    <div className="text-sm text-gray-500">{prospect.location}</div>
-                  )}
-                </td>
-
-                {/* Status Badge */}
-                <td className="px-6 py-4 whitespace-nowrap">
-                  <span
-                    className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${getStatusBadgeClass(
-                      prospect.connection_status
-                    )}`}
-                  >
-                    {CONNECTION_STATUS_LABELS[prospect.connection_status]}
-                  </span>
                 </td>
 
                 {/* Tags */}

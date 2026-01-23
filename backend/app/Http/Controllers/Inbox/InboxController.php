@@ -498,8 +498,18 @@ class InboxController extends Controller
     {
         $user = $request->user();
 
+        // Fetch both pending messages AND scheduled messages that are due to be sent
         $messages = LinkedInMessage::where('user_id', $user->id)
-            ->pending()
+            ->where(function ($query) {
+                // STATUS_PENDING (immediate send)
+                $query->where('status', LinkedInMessage::STATUS_PENDING)
+                    // OR STATUS_SCHEDULED where scheduled_at <= now()
+                    ->orWhere(function ($q) {
+                        $q->where('status', LinkedInMessage::STATUS_SCHEDULED)
+                            ->whereNotNull('scheduled_at')
+                            ->where('scheduled_at', '<=', now());
+                    });
+            })
             ->with(['conversation:id,linkedin_conversation_id,participant_linkedin_id,participant_profile_url'])
             ->get();
 

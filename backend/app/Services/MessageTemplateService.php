@@ -44,6 +44,7 @@ class MessageTemplateService
             'name' => $data['name'],
             'type' => $data['type'],
             'content' => $data['content'],
+            'subject' => $data['subject'] ?? null,
         ]);
     }
 
@@ -56,11 +57,18 @@ class MessageTemplateService
      */
     public function updateTemplate(MessageTemplate $template, array $data): MessageTemplate
     {
-        $template->update([
+        $updateData = [
             'name' => $data['name'] ?? $template->name,
             'content' => $data['content'] ?? $template->content,
             // Note: type cannot be changed after creation
-        ]);
+        ];
+
+        // Include subject for email templates
+        if (array_key_exists('subject', $data)) {
+            $updateData['subject'] = $data['subject'];
+        }
+
+        $template->update($updateData);
 
         return $template->fresh();
     }
