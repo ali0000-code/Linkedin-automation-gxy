@@ -4,7 +4,7 @@
  * React Query hooks for managing sent emails.
  */
 
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient, keepPreviousData } from '@tanstack/react-query';
 import { mailService } from '../services/mail.service';
 
 /**
@@ -15,7 +15,7 @@ export const useMails = (params = {}) => {
   return useQuery({
     queryKey: ['mails', params],
     queryFn: () => mailService.getEmails(params),
-    keepPreviousData: true,
+    placeholderData: keepPreviousData,
   });
 };
 
@@ -62,9 +62,9 @@ export const useQueueFromCampaign = () => {
     mutationFn: ({ campaignId, templateId, sendNow }) =>
       mailService.queueFromCampaign(campaignId, templateId, sendNow),
     onSuccess: () => {
-      queryClient.invalidateQueries(['mails']);
-      queryClient.invalidateQueries(['mailStats']);
-      queryClient.invalidateQueries(['pendingExtractions']);
+      queryClient.invalidateQueries({ queryKey: ['mails'] });
+      queryClient.invalidateQueries({ queryKey: ['mailStats'] });
+      queryClient.invalidateQueries({ queryKey: ['pendingExtractions'] });
     },
   });
 };
@@ -78,7 +78,7 @@ export const useDiscardExtraction = () => {
   return useMutation({
     mutationFn: (campaignId) => mailService.discardExtraction(campaignId),
     onSuccess: () => {
-      queryClient.invalidateQueries(['pendingExtractions']);
+      queryClient.invalidateQueries({ queryKey: ['pendingExtractions'] });
     },
   });
 };
@@ -92,8 +92,8 @@ export const useSendEmail = () => {
   return useMutation({
     mutationFn: (emailId) => mailService.sendEmail(emailId),
     onSuccess: () => {
-      queryClient.invalidateQueries(['mails']);
-      queryClient.invalidateQueries(['mailStats']);
+      queryClient.invalidateQueries({ queryKey: ['mails'] });
+      queryClient.invalidateQueries({ queryKey: ['mailStats'] });
     },
   });
 };
@@ -107,8 +107,8 @@ export const useSendBulk = () => {
   return useMutation({
     mutationFn: (emailIds) => mailService.sendBulk(emailIds),
     onSuccess: () => {
-      queryClient.invalidateQueries(['mails']);
-      queryClient.invalidateQueries(['mailStats']);
+      queryClient.invalidateQueries({ queryKey: ['mails'] });
+      queryClient.invalidateQueries({ queryKey: ['mailStats'] });
     },
   });
 };
@@ -122,8 +122,8 @@ export const useDeleteEmail = () => {
   return useMutation({
     mutationFn: (emailId) => mailService.deleteEmail(emailId),
     onSuccess: () => {
-      queryClient.invalidateQueries(['mails']);
-      queryClient.invalidateQueries(['mailStats']);
+      queryClient.invalidateQueries({ queryKey: ['mails'] });
+      queryClient.invalidateQueries({ queryKey: ['mailStats'] });
     },
   });
 };
@@ -137,8 +137,8 @@ export const useDeleteBulk = () => {
   return useMutation({
     mutationFn: (emailIds) => mailService.deleteBulk(emailIds),
     onSuccess: () => {
-      queryClient.invalidateQueries(['mails']);
-      queryClient.invalidateQueries(['mailStats']);
+      queryClient.invalidateQueries({ queryKey: ['mails'] });
+      queryClient.invalidateQueries({ queryKey: ['mailStats'] });
     },
   });
 };
@@ -152,7 +152,7 @@ export const useUpdateEmail = () => {
   return useMutation({
     mutationFn: ({ emailId, data }) => mailService.updateEmail(emailId, data),
     onSuccess: () => {
-      queryClient.invalidateQueries(['mails']);
+      queryClient.invalidateQueries({ queryKey: ['mails'] });
     },
   });
 };
@@ -166,8 +166,8 @@ export const useCreateEmail = () => {
   return useMutation({
     mutationFn: (data) => mailService.createEmail(data),
     onSuccess: () => {
-      queryClient.invalidateQueries(['mails']);
-      queryClient.invalidateQueries(['mailStats']);
+      queryClient.invalidateQueries({ queryKey: ['mails'] });
+      queryClient.invalidateQueries({ queryKey: ['mailStats'] });
     },
   });
 };

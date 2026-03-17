@@ -199,14 +199,6 @@ function App() {
             }
           />
           <Route
-            path="/pricing"
-            element={
-              <ProtectedRoute>
-                <ComingSoon title="Pricing" description="Pricing and subscription management coming soon." />
-              </ProtectedRoute>
-            }
-          />
-          <Route
             path="/mail"
             element={
               <ProtectedRoute>

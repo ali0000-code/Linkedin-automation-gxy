@@ -83,7 +83,7 @@ class InboxController extends Controller
         $user = $request->user();
 
         $conversations = Conversation::where('user_id', $user->id)
-            ->with(['prospect:id,full_name,linkedin_id,avatar_url'])
+            ->with(['prospect:id,full_name,linkedin_id,profile_image_url'])
             ->latestFirst()
             ->paginate($request->input('per_page', 20));
 

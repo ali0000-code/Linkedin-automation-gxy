@@ -50,8 +50,8 @@ export const useSyncConversations = () => {
   return useMutation({
     mutationFn: (conversations) => inboxService.syncConversations(conversations),
     onSuccess: () => {
-      queryClient.invalidateQueries(['conversations']);
-      queryClient.invalidateQueries(['inboxStats']);
+      queryClient.invalidateQueries({ queryKey: ['conversations'] });
+      queryClient.invalidateQueries({ queryKey: ['inboxStats'] });
     },
   });
 };
@@ -66,8 +66,8 @@ export const useSyncMessages = () => {
     mutationFn: ({ conversationId, messages }) =>
       inboxService.syncMessages(conversationId, messages),
     onSuccess: (_, variables) => {
-      queryClient.invalidateQueries(['conversation', variables.conversationId]);
-      queryClient.invalidateQueries(['conversations']);
+      queryClient.invalidateQueries({ queryKey: ['conversation', variables.conversationId] });
+      queryClient.invalidateQueries({ queryKey: ['conversations'] });
     },
   });
 };
@@ -82,8 +82,8 @@ export const useSendMessage = () => {
     mutationFn: ({ conversationId, content }) =>
       inboxService.sendMessage(conversationId, content),
     onSuccess: (_, variables) => {
-      queryClient.invalidateQueries(['conversation', variables.conversationId]);
-      queryClient.invalidateQueries(['conversations']);
+      queryClient.invalidateQueries({ queryKey: ['conversation', variables.conversationId] });
+      queryClient.invalidateQueries({ queryKey: ['conversations'] });
     },
   });
 };
@@ -97,8 +97,8 @@ export const useMarkAsRead = () => {
   return useMutation({
     mutationFn: (conversationId) => inboxService.markAsRead(conversationId),
     onSuccess: () => {
-      queryClient.invalidateQueries(['conversations']);
-      queryClient.invalidateQueries(['inboxStats']);
+      queryClient.invalidateQueries({ queryKey: ['conversations'] });
+      queryClient.invalidateQueries({ queryKey: ['inboxStats'] });
     },
   });
 };
@@ -112,8 +112,8 @@ export const useDeleteConversation = () => {
   return useMutation({
     mutationFn: (id) => inboxService.deleteConversation(id),
     onSuccess: () => {
-      queryClient.invalidateQueries(['conversations']);
-      queryClient.invalidateQueries(['inboxStats']);
+      queryClient.invalidateQueries({ queryKey: ['conversations'] });
+      queryClient.invalidateQueries({ queryKey: ['inboxStats'] });
     },
   });
 };
@@ -150,9 +150,9 @@ export const useSendScheduledMessage = () => {
     mutationFn: ({ conversationId, content, scheduledAt }) =>
       inboxService.sendScheduledMessage(conversationId, content, scheduledAt),
     onSuccess: (_, variables) => {
-      queryClient.invalidateQueries(['conversation', variables.conversationId]);
-      queryClient.invalidateQueries(['conversations']);
-      queryClient.invalidateQueries(['scheduledMessages']);
+      queryClient.invalidateQueries({ queryKey: ['conversation', variables.conversationId] });
+      queryClient.invalidateQueries({ queryKey: ['conversations'] });
+      queryClient.invalidateQueries({ queryKey: ['scheduledMessages'] });
     },
   });
 };
@@ -166,8 +166,8 @@ export const useCancelScheduledMessage = () => {
   return useMutation({
     mutationFn: (messageId) => inboxService.cancelScheduledMessage(messageId),
     onSuccess: () => {
-      queryClient.invalidateQueries(['scheduledMessages']);
-      queryClient.invalidateQueries(['conversations']);
+      queryClient.invalidateQueries({ queryKey: ['scheduledMessages'] });
+      queryClient.invalidateQueries({ queryKey: ['conversations'] });
     },
   });
 };
@@ -182,8 +182,8 @@ export const useUpdateScheduledMessage = () => {
     mutationFn: ({ messageId, data }) =>
       inboxService.updateScheduledMessage(messageId, data),
     onSuccess: () => {
-      queryClient.invalidateQueries(['scheduledMessages']);
-      queryClient.invalidateQueries(['conversations']);
+      queryClient.invalidateQueries({ queryKey: ['scheduledMessages'] });
+      queryClient.invalidateQueries({ queryKey: ['conversations'] });
     },
   });
 };

@@ -4,7 +4,7 @@
  * Custom hooks for fetching and mutating prospect data using TanStack Query.
  */
 
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient, keepPreviousData } from '@tanstack/react-query';
 import { prospectService } from '../services/prospect.service';
 
 /**
@@ -12,12 +12,13 @@ import { prospectService } from '../services/prospect.service';
  * @param {object} filters - Query filters (per_page, connection_status, tag_id, search, page)
  * @returns {object} Query result with data, isLoading, error, etc.
  */
-export const useProspects = (filters = {}) => {
+export const useProspects = (filters = {}, options = {}) => {
   return useQuery({
     queryKey: ['prospects', filters],
     queryFn: () => prospectService.getProspects(filters),
-    keepPreviousData: true, // Keep old data while fetching new page
+    placeholderData: keepPreviousData, // Keep old data while fetching new page
     staleTime: 30000, // Consider data fresh for 30 seconds
+    ...options,
   });
 };
 

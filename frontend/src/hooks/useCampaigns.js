@@ -4,7 +4,7 @@
  * Custom hooks for fetching and mutating campaign data using TanStack Query.
  */
 
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient, keepPreviousData } from '@tanstack/react-query';
 import campaignService from '../services/campaign.service';
 import { startCampaignQueue } from '../services/extension.service';
 
@@ -17,7 +17,7 @@ export const useCampaigns = (filters = {}) => {
   return useQuery({
     queryKey: ['campaigns', filters],
     queryFn: () => campaignService.getCampaigns(filters),
-    keepPreviousData: true,
+    placeholderData: keepPreviousData,
     staleTime: 30000,
   });
 };

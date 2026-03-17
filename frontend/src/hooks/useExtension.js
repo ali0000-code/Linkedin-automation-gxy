@@ -70,6 +70,7 @@ const sendMessage = (type, data = {}) => {
 export const useExtension = () => {
   const [isConnected, setIsConnected] = useState(false);
   const [isChecking, setIsChecking] = useState(true);
+  const [lastSyncTime, setLastSyncTime] = useState(null);
 
   // Check if extension is available
   useEffect(() => {
@@ -121,10 +122,12 @@ export const useExtension = () => {
    * @returns {Promise<object>} Sync result
    */
   const syncInbox = useCallback(async (options = {}) => {
-    return triggerSync('SYNC_INBOX', {
+    const result = await triggerSync('SYNC_INBOX', {
       limit: options.limit || 50,
       includeMessages: options.includeMessages || false,
     });
+    setLastSyncTime(Date.now());
+    return result;
   }, [triggerSync]);
 
   /**
@@ -247,6 +250,7 @@ export const useExtension = () => {
   return {
     isConnected,
     isChecking,
+    lastSyncTime,
     triggerSync,
     syncInbox,
     sendLinkedInMessage,
