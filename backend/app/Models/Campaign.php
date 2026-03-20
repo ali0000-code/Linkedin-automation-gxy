@@ -12,31 +12,8 @@ use Illuminate\Database\Eloquent\SoftDeletes;
 /**
  * Campaign Model
  *
- * Represents an automated LinkedIn outreach campaign with multiple sequential steps.
- *
- * Status lifecycle:
- *   draft -> active -> completed      (normal flow)
- *   draft -> active -> paused -> active -> completed  (pause/resume)
- *   draft|completed -> archived       (soft-archived, can be restored)
- *   (any status) -> soft-deleted      (via SoftDeletes trait)
- *
- * A campaign contains:
- * - Steps: ordered sequence of actions (visit, invite, message, follow, email)
- * - Prospects: leads assigned to this campaign (tracked via campaign_prospects pivot)
- * - Action queue: individual scheduled tasks generated when the campaign starts
- *
- * When a campaign is started, the GenerateCampaignActions job creates action_queue
- * entries for every (prospect x step) combination, with scheduled_for timestamps
- * calculated from step delay_days. The Chrome extension then polls and executes them.
- *
- * Counter fields (total_prospects, processed_prospects, success_count, failure_count)
- * are denormalized for dashboard performance -- they're incremented as actions complete.
- *
- * The tag_id field optionally links to a Tag for auto-populating prospects:
- * when starting a campaign with a tag_id, all prospects with that tag are added.
- *
- * Uses SoftDeletes so deleted campaigns can be recovered and their historical
- * data (action_queue, campaign_prospects) remains intact for reporting.
+ * Represents an automated LinkedIn campaign with multiple steps/actions.
+ * Campaigns can have different statuses (draft, active, paused, completed, archived).
  *
  * @property int $id
  * @property int $user_id

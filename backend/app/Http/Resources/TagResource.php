@@ -9,11 +9,7 @@ use Illuminate\Http\Resources\Json\JsonResource;
  * TagResource
  *
  * Transforms Tag model data for API responses.
- *
- * The prospects_count field is conditionally included -- it only appears when
- * the Tag was loaded with withCount('prospects') (done by TagService::getTags).
- * This avoids an extra query when tags are loaded as nested resources inside
- * ProspectResource where the count isn't needed.
+ * Includes prospect count if available.
  */
 class TagResource extends JsonResource
 {

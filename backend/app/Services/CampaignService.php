@@ -2,39 +2,17 @@
 
 namespace App\Services;
 
-use App\Jobs\GenerateCampaignActions;
 use App\Models\Campaign;
 use App\Models\CampaignProspect;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Pagination\LengthAwarePaginator;
-use Illuminate\Support\Facades\Cache;
 
 /**
  * Campaign Service
  *
- * Business logic for campaign CRUD, prospect assignment, and lifecycle management.
- *
- * Cache invalidation: Campaign stats are cached for 60 seconds per user
- * (key: "campaign_stats_{user_id}"). The cache is busted on create, delete,
- * start, and pause operations to ensure the dashboard shows fresh data.
- *
- * Campaign start flow (startCampaign):
- * 1. Validates preconditions (must be draft/paused, must have steps, must have prospects)
- * 2. For draft campaigns with a tag_id: auto-adds all prospects with that tag
- * 3. Activates the campaign (sets status=active, started_at=now)
- * 4. Dispatches GenerateCampaignActions job to generate action_queue entries
- *    asynchronously (avoids HTTP timeout for campaigns with many prospects)
- * 5. For paused campaigns being resumed: skips action generation (they already exist)
- *
- * Prospect management:
- * - addProspects: Uses bulk fetch + bulk insert to avoid N+1 queries.
- *   Pre-checks for existing assignments to prevent duplicates.
- * - removeProspects: Only removes prospects in 'pending' status (cannot remove
- *   in-progress or completed prospects).
- *
- * Delete restrictions: Only draft or completed campaigns can be deleted.
- * Active/paused campaigns must be completed or archived first.
+ * Business logic for campaign management.
+ * Handles campaign CRUD operations, prospect assignment, and campaign lifecycle.
  */
 class CampaignService
 {
@@ -101,8 +79,6 @@ class CampaignService
      */
     public function createCampaign(User $user, array $data): Campaign
     {
-        Cache::forget("campaign_stats_{$user->id}");
-
         // Create the campaign
         $campaign = $user->campaigns()->create([
             'name' => $data['name'],
@@ -196,7 +172,6 @@ class CampaignService
             return false;
         }
 
-        Cache::forget("campaign_stats_{$user->id}");
         return $campaign->delete();
     }
 
@@ -348,8 +323,6 @@ class CampaignService
             }
         }
 
-        Cache::forget("campaign_stats_{$campaign->user_id}");
-
         // Activate the campaign first
         $activated = $campaign->activate();
 
@@ -375,13 +348,13 @@ class CampaignService
                     'actions_created' => $pendingActions,
                 ];
             } else {
-                // Dispatch action generation to background job
-                GenerateCampaignActions::dispatch($campaign);
+                // For new start, generate actions
+                $actionsCreated = $this->actionQueueService->generateActionsForCampaign($campaign);
 
                 return [
                     'success' => true,
-                    'message' => 'Campaign started. Actions are being generated in the background.',
-                    'actions_created' => 0,
+                    'message' => "Campaign started successfully. {$actionsCreated} actions scheduled.",
+                    'actions_created' => $actionsCreated,
                 ];
             }
         } catch (\Exception $e) {
@@ -409,7 +382,6 @@ class CampaignService
             return false;
         }
 
-        Cache::forget("campaign_stats_{$campaign->user_id}");
         return $campaign->pause();
     }
 
@@ -421,22 +393,12 @@ class CampaignService
      */
     public function getStats(User $user): array
     {
-        return \Illuminate\Support\Facades\Cache::remember("campaign_stats_{$user->id}", 60, function () use ($user) {
-            $stats = Campaign::where('user_id', $user->id)
-                ->selectRaw('COUNT(*) as total')
-                ->selectRaw("SUM(CASE WHEN status = 'active' THEN 1 ELSE 0 END) as active")
-                ->selectRaw("SUM(CASE WHEN status = 'draft' THEN 1 ELSE 0 END) as draft")
-                ->selectRaw("SUM(CASE WHEN status = 'paused' THEN 1 ELSE 0 END) as paused")
-                ->selectRaw("SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) as completed")
-                ->first();
-
-            return [
-                'total' => (int) ($stats->total ?? 0),
-                'active' => (int) ($stats->active ?? 0),
-                'draft' => (int) ($stats->draft ?? 0),
-                'paused' => (int) ($stats->paused ?? 0),
-                'completed' => (int) ($stats->completed ?? 0),
-            ];
-        });
+        return [
+            'total' => $user->campaigns()->count(),
+            'active' => $user->campaigns()->where('status', Campaign::STATUS_ACTIVE)->count(),
+            'draft' => $user->campaigns()->where('status', Campaign::STATUS_DRAFT)->count(),
+            'paused' => $user->campaigns()->where('status', Campaign::STATUS_PAUSED)->count(),
+            'completed' => $user->campaigns()->where('status', Campaign::STATUS_COMPLETED)->count(),
+        ];
     }
 }

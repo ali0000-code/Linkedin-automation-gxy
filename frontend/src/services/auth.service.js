@@ -1,13 +1,8 @@
 /**
- * @file auth.service.js - Authentication API calls (LinkedIn OAuth)
+ * Authentication Service (OAuth Version)
  *
- * Authentication flow: the user clicks "Sign in with LinkedIn" which redirects to
- * the backend's /api/auth/linkedin endpoint. The backend handles the OAuth dance with
- * LinkedIn and redirects back to /auth/callback#token=xxx. The LinkedInCallback page
- * then calls getUserWithToken() to fetch the user profile and store the session.
- *
- * Also provides verifyLinkedInAccount() used by the extension to verify that the
- * LinkedIn account the user is logged into matches the one linked to their webapp account.
+ * Handles OAuth authentication operations: get user data, logout, and LinkedIn verification.
+ * Login is now handled via LinkedIn OAuth redirect (no email/password).
  */
 
 import api from './api';

@@ -12,21 +12,8 @@ use Laravel\Socialite\Contracts\User as SocialiteUser;
 /**
  * LinkedInOAuthService
  *
- * Core authentication service handling LinkedIn OAuth token lifecycle.
- *
- * Responsibilities:
- * - Creating/updating User and LinkedInAccount records from OAuth data
- * - Encrypting OAuth tokens at rest using Laravel's Crypt facade
- * - Refreshing expired access tokens using the refresh token
- * - Providing decrypted access tokens for LinkedIn API calls
- *
- * Token encryption: Both access_token and refresh_token are encrypted using
- * Crypt::encryptString() before storage. This means they're AES-256-CBC encrypted
- * with the APP_KEY. If APP_KEY changes, all tokens become unreadable.
- *
- * Token refresh: LinkedIn OAuth tokens expire (typically after 60 days).
- * getValidAccessToken() automatically refreshes if the token is expiring within
- * the next 60 minutes (configurable buffer).
+ * Business logic for LinkedIn OAuth authentication.
+ * Handles user creation, LinkedIn account linking, and token management.
  */
 class LinkedInOAuthService
 {

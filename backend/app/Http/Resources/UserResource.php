@@ -9,13 +9,8 @@ use Illuminate\Http\Resources\Json\JsonResource;
  * UserResource
  *
  * Transforms User model data for API responses.
- *
- * Exposed: id, name, email, profile URLs, has_auth_key flag, timestamps.
- * Hidden (not included): oauth tokens, auth_key value, linkedin_id.
- *
- * The has_auth_key boolean lets the frontend know whether to show the
- * "copy auth key" button without exposing the actual key value.
- * The actual auth_key is only returned via the dedicated /api/auth/key endpoint.
+ * Controls which user attributes are exposed to the API.
+ * Hides sensitive data like passwords.
  */
 class UserResource extends JsonResource
 {
@@ -36,7 +31,6 @@ class UserResource extends JsonResource
             'email' => $this->email,
             'profile_url' => $this->profile_url,
             'profile_image_url' => $this->profile_image_url,
-            'has_auth_key' => !empty($this->auth_key),
             'email_verified_at' => $this->email_verified_at,
             'created_at' => $this->created_at,
             'updated_at' => $this->updated_at,

@@ -10,28 +10,8 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 /**
  * Campaign Step Model
  *
- * Represents a single step in a campaign's sequential action pipeline.
- * Steps are always executed in ascending 'order' within a campaign.
- *
- * Step ordering and delays:
- * - Steps are 1-indexed (order = 1, 2, 3...) and executed sequentially per prospect
- * - delay_days controls the gap between this step and the previous one
- *   (e.g., delay_days=2 means this step runs 2 days after the previous step)
- * - The first step's delay_days is relative to campaign start time
- *
- * Relationship to actions:
- * - Each step references a CampaignAction via campaign_action_id, which defines
- *   what type of LinkedIn action to perform (visit, invite, message, follow, email)
- * - The action's requires_template and requires_connection flags determine
- *   whether this step needs a message_template_id and/or existing connection
- *
- * The config JSON field stores step-specific overrides, such as:
- * - invite_template_id for connect_message combo actions
- * - fallback_template_id for email_message conditional actions
- * - Custom delay/limit overrides
- *
- * When a campaign is started, ActionQueueService iterates all steps for each
- * prospect and generates one action_queue entry per (step, prospect) pair.
+ * Represents a single step/action in a campaign sequence.
+ * Each campaign can have multiple steps that execute in order with configurable delays.
  *
  * @property int $id
  * @property int $campaign_id

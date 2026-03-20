@@ -9,18 +9,8 @@ use Illuminate\Database\Eloquent\Collection;
 /**
  * TagService
  *
- * Service class for tag CRUD operations.
- *
- * Tags serve dual purposes:
- * 1. Organization: Users label prospects for filtering in the prospect list
- * 2. Campaign targeting: A campaign can reference a tag_id to auto-include
- *    all prospects with that tag when the campaign starts
- *
- * Tags include a prospects_count (via withCount) so the frontend can display
- * usage statistics without additional queries.
- *
- * Tag deletion cascades to the prospect_tag pivot table (handled by DB foreign keys),
- * removing all prospect associations. It does NOT affect campaigns that reference the tag.
+ * Service class for handling tag business logic.
+ * Tags are used to categorize prospects (e.g., "Hot Lead", "CEO", "Marketing").
  */
 class TagService
 {

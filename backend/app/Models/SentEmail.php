@@ -9,23 +9,7 @@ use Illuminate\Database\Eloquent\Builder;
 /**
  * SentEmail Model
  *
- * Tracks every email sent (or attempted) to prospects through the platform.
- *
- * Emails can originate from:
- * 1. Campaign email steps -- bulk-created when a campaign with an email action completes
- *    and the user triggers "queue from campaign" (campaign_id is set)
- * 2. Manual/custom emails -- created directly by the user (campaign_id is null)
- *
- * Status flow:
- *   draft   -> pending -> sent     (user edits draft, then sends)
- *   pending -> sent                (immediate send)
- *   pending -> failed              (SMTP error, recorded in error_message)
- *
- * The action_queue_id is nullable and links back to the campaign action that
- * triggered this email, enabling traceability from campaign -> action -> email.
- *
- * The sent_at timestamp records the actual send time (vs created_at which is
- * when the record was created, possibly as a draft).
+ * Tracks all emails sent to prospects through the platform.
  */
 class SentEmail extends Model
 {

@@ -1,9 +1,7 @@
 /**
- * @file useGmailSettings.js - React Query hooks for Gmail SMTP configuration
+ * Gmail Settings Hooks
  *
- * Manages the Gmail App Password integration settings (connect, verify, disconnect).
- * All mutations invalidate the 'gmailSettings' query so the Settings page
- * immediately reflects the updated connection status.
+ * React Query hooks for managing Gmail settings.
  */
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';

@@ -9,15 +9,7 @@ use Illuminate\Http\Resources\Json\JsonResource;
  * ProspectResource
  *
  * Transforms Prospect model data for API responses.
- *
- * Includes all prospect fields the frontend needs, plus:
- * - tags: nested TagResource collection (only when the 'tags' relationship is loaded,
- *   via whenLoaded to avoid N+1 queries when tags aren't needed)
- * - connection_status: important for the UI to show connect/message buttons
- * - notes: user-added free-text notes about the prospect
- *
- * Fields like user_id are intentionally omitted since all prospects
- * belong to the authenticated user (no cross-user visibility).
+ * Includes related tags.
  */
 class ProspectResource extends JsonResource
 {

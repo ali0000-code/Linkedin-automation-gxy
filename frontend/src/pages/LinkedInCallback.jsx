@@ -6,22 +6,9 @@ import Spinner from '../components/common/Spinner';
 /**
  * LinkedInCallback Component
  *
- * Handles the OAuth callback after LinkedIn authorization.
- *
- * The backend redirects here with the token in a URL fragment (hash):
- *   /auth/callback#token=xxx
- * Using a fragment (not query param) prevents the token from being sent to the
- * server in subsequent requests or logged in server access logs.
- *
- * Flow:
- * 1. Parse token from window.location.hash (URLSearchParams on the fragment)
- * 2. Fetch user profile from /api/user using the token
- * 3. Store token + user in Zustand (which persists to localStorage)
- * 4. Send AUTH_SUCCESS message to Chrome extension so it can authenticate its API calls
- * 5. Navigate to /prospects
- *
- * Error handling: if the backend redirected with ?error=... (query param), that error
- * is displayed and the user can retry. If no token is found, a generic error is shown.
+ * Handles the OAuth callback from LinkedIn after user authorizes.
+ * Extracts token from URL fragment, fetches user data, stores auth state,
+ * and sends token to Chrome extension.
  */
 export default function LinkedInCallback() {
   const navigate = useNavigate();
@@ -33,9 +20,8 @@ export default function LinkedInCallback() {
     const handleOAuthCallback = async () => {
       try {
         // Extract token from URL fragment (#token=xxx)
-        // The hash includes the leading '#', so substring(1) strips it before parsing
         const hash = window.location.hash;
-        const params = new URLSearchParams(hash.substring(1));
+        const params = new URLSearchParams(hash.substring(1)); // Remove # and parse
         const token = params.get('token');
 
         // Check for error in query string

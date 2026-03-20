@@ -19,16 +19,9 @@ use Illuminate\Support\Facades\Route;
 | API Routes
 |--------------------------------------------------------------------------
 |
-| All routes are automatically prefixed with /api by Laravel.
+| Here is where you register API routes for the application.
+| These routes are automatically prefixed with /api by Laravel.
 | All routes return JSON responses.
-|
-| Rate limiting tiers (requests per minute):
-|   - Public OAuth routes:     10/min  (prevents brute-force on auth endpoints)
-|   - Standard authenticated:  120/min (normal API usage)
-|   - Bulk operations:         20/min  (heavy DB writes: imports, bulk deletes)
-|   - Inbox sync:              10/min  (heavy operation with many DB writes)
-|   - Bulk mail:               10/min  (expensive: each email opens SMTP connection)
-|   - Extension polling:       60/min  (extension polls every few seconds)
 |
 */
 
@@ -54,10 +47,6 @@ Route::middleware(['web', 'throttle:10,1'])->group(function () {
     Route::get('/auth/linkedin/callback', [LinkedInOAuthController::class, 'callback']);
 });
 
-// Extension authentication via auth key (public, no Sanctum required).
-// Rate limited to 10/min to prevent brute-force guessing of 22-char auth keys.
-Route::middleware('throttle:10,1')->post('/auth/extension', [LinkedInOAuthController::class, 'extensionAuth']);
-
 /*
 |--------------------------------------------------------------------------
 | Protected Routes (Require Authentication)
@@ -68,22 +57,22 @@ Route::middleware('throttle:10,1')->post('/auth/extension', [LinkedInOAuthContro
 |
 */
 
-Route::middleware(['auth:sanctum', 'throttle:120,1'])->group(function () {
+Route::middleware('auth:sanctum')->group(function () {
     /*
     |--------------------------------------------------------------------------
     | User Routes
     |--------------------------------------------------------------------------
     */
+    // Get authenticated user info
     Route::get('/user', function (Illuminate\Http\Request $request) {
         return new \App\Http\Resources\UserResource($request->user());
     });
 
+    // Logout (revoke current token)
     Route::post('/logout', LogoutController::class);
-    Route::post('/auth/linkedin/verify', [LinkedInOAuthController::class, 'verifyLinkedInAccount']);
 
-    // Auth key management (for extension)
-    Route::get('/auth/key', [LinkedInOAuthController::class, 'getAuthKey']);
-    Route::post('/auth/key/regenerate', [LinkedInOAuthController::class, 'regenerateAuthKey']);
+    // Verify LinkedIn account (for extension)
+    Route::post('/auth/linkedin/verify', [LinkedInOAuthController::class, 'verifyLinkedInAccount']);
 
     /*
     |--------------------------------------------------------------------------
@@ -97,23 +86,29 @@ Route::middleware(['auth:sanctum', 'throttle:120,1'])->group(function () {
     | Prospect Routes
     |--------------------------------------------------------------------------
     */
+    // Prospect statistics
     Route::get('/prospects/stats', [ProspectController::class, 'stats']);
+
+    // Bulk import prospects (for Chrome extension)
+    Route::post('/prospects/bulk', [ProspectController::class, 'bulkImport']);
+
+    // Bulk operations on prospects
+    Route::post('/prospects/bulk-delete', [ProspectController::class, 'bulkDelete']);
+    Route::post('/prospects/bulk-attach-tags', [ProspectController::class, 'bulkAttachTags']);
+
+    // Standard CRUD for prospects
     Route::apiResource('prospects', ProspectController::class);
+
+    // Prospect tag management
     Route::post('/prospects/{prospect}/tags', [ProspectController::class, 'attachTags']);
     Route::delete('/prospects/{prospect}/tags/{tag}', [ProspectController::class, 'detachTag']);
-
-    // Bulk operations — stricter rate limit
-    Route::middleware('throttle:20,1')->group(function () {
-        Route::post('/prospects/bulk', [ProspectController::class, 'bulkImport']);
-        Route::post('/prospects/bulk-delete', [ProspectController::class, 'bulkDelete']);
-        Route::post('/prospects/bulk-attach-tags', [ProspectController::class, 'bulkAttachTags']);
-    });
 
     /*
     |--------------------------------------------------------------------------
     | Tag Routes
     |--------------------------------------------------------------------------
     */
+    // Standard CRUD for tags
     Route::apiResource('tags', TagController::class);
 
     /*
@@ -121,7 +116,11 @@ Route::middleware(['auth:sanctum', 'throttle:120,1'])->group(function () {
     | Message Template Routes
     |--------------------------------------------------------------------------
     */
+    // Bulk delete templates
     Route::post('/templates/bulk-delete', [MessageTemplateController::class, 'bulkDelete']);
+
+    // Standard CRUD for message templates
+    // Query parameter: ?type=invitation or ?type=message to filter by type
     Route::apiResource('templates', MessageTemplateController::class);
 
     /*
@@ -129,11 +128,18 @@ Route::middleware(['auth:sanctum', 'throttle:120,1'])->group(function () {
     | Campaign Routes
     |--------------------------------------------------------------------------
     */
+    // Campaign statistics
     Route::get('/campaigns/stats', [CampaignController::class, 'stats']);
+
+    // Campaign actions (start, pause)
     Route::post('/campaigns/{id}/start', [CampaignController::class, 'start']);
     Route::post('/campaigns/{id}/pause', [CampaignController::class, 'pause']);
+
+    // Prospect management
     Route::post('/campaigns/{id}/prospects/add', [CampaignController::class, 'addProspects']);
     Route::post('/campaigns/{id}/prospects/remove', [CampaignController::class, 'removeProspects']);
+
+    // Standard CRUD for campaigns
     Route::apiResource('campaigns', CampaignController::class);
 
     /*
@@ -141,6 +147,7 @@ Route::middleware(['auth:sanctum', 'throttle:120,1'])->group(function () {
     | Campaign Action Routes
     |--------------------------------------------------------------------------
     */
+    // Get available campaign action types
     Route::get('/campaign-actions', [CampaignActionController::class, 'index']);
     Route::get('/campaign-actions/{id}', [CampaignActionController::class, 'show']);
 
@@ -150,6 +157,7 @@ Route::middleware(['auth:sanctum', 'throttle:120,1'])->group(function () {
     |--------------------------------------------------------------------------
     */
     Route::prefix('settings')->group(function () {
+        // Gmail SMTP settings
         Route::get('/gmail', [GmailSettingController::class, 'show']);
         Route::post('/gmail', [GmailSettingController::class, 'store']);
         Route::post('/gmail/verify', [GmailSettingController::class, 'verify']);
@@ -165,18 +173,14 @@ Route::middleware(['auth:sanctum', 'throttle:120,1'])->group(function () {
     Route::post('/mail', [SentEmailController::class, 'store']);
     Route::get('/mail/stats', [SentEmailController::class, 'stats']);
     Route::get('/mail/pending-extractions', [SentEmailController::class, 'getPendingExtractions']);
+    Route::post('/mail/queue-from-campaign', [SentEmailController::class, 'queueFromCampaign']);
+    Route::post('/mail/send-bulk', [SentEmailController::class, 'sendBulk']);
+    Route::delete('/mail/bulk-delete', [SentEmailController::class, 'bulkDelete']);
+    Route::delete('/mail/discard-extraction/{campaignId}', [SentEmailController::class, 'discardExtraction']);
     Route::get('/mail/{id}', [SentEmailController::class, 'show']);
     Route::put('/mail/{id}', [SentEmailController::class, 'update']);
     Route::post('/mail/{id}/send', [SentEmailController::class, 'send']);
     Route::delete('/mail/{id}', [SentEmailController::class, 'destroy']);
-
-    // Bulk mail — stricter rate limit
-    Route::middleware('throttle:10,1')->group(function () {
-        Route::post('/mail/queue-from-campaign', [SentEmailController::class, 'queueFromCampaign']);
-        Route::post('/mail/send-bulk', [SentEmailController::class, 'sendBulk']);
-        Route::delete('/mail/bulk-delete', [SentEmailController::class, 'bulkDelete']);
-        Route::delete('/mail/discard-extraction/{campaignId}', [SentEmailController::class, 'discardExtraction']);
-    });
 
     /*
     |--------------------------------------------------------------------------
@@ -185,13 +189,13 @@ Route::middleware(['auth:sanctum', 'throttle:120,1'])->group(function () {
     */
     Route::get('/inbox', [InboxController::class, 'index']);
     Route::get('/inbox/stats', [InboxController::class, 'stats']);
+    Route::post('/inbox/sync', [InboxController::class, 'sync']);
     Route::get('/inbox/pending-messages', [InboxController::class, 'pendingMessages']);
     Route::get('/inbox/scheduled', [InboxController::class, 'scheduledMessages']);
     Route::delete('/inbox/scheduled/{id}', [InboxController::class, 'cancelScheduledMessage']);
     Route::put('/inbox/scheduled/{id}', [InboxController::class, 'updateScheduledMessage']);
     Route::post('/inbox/conversations', [InboxController::class, 'createConversation']);
     Route::get('/inbox/{id}', [InboxController::class, 'show']);
-    Route::get('/inbox/{id}/check', [InboxController::class, 'check']);
     Route::post('/inbox/{id}/sync-messages', [InboxController::class, 'syncMessages']);
     Route::post('/inbox/{id}/send', [InboxController::class, 'sendMessage']);
     Route::post('/inbox/{id}/read', [InboxController::class, 'markAsRead']);
@@ -199,23 +203,31 @@ Route::middleware(['auth:sanctum', 'throttle:120,1'])->group(function () {
     Route::post('/inbox/messages/{id}/mark-sent', [InboxController::class, 'markMessageSent']);
     Route::post('/inbox/incoming-message', [InboxController::class, 'incomingMessage']);
 
-    // Inbox sync — limited (heavy operation)
-    Route::middleware('throttle:10,1')->group(function () {
-        Route::post('/inbox/sync', [InboxController::class, 'sync']);
-    });
-
     /*
     |--------------------------------------------------------------------------
-    | Extension Routes — rate limited for polling
+    | Extension Routes
     |--------------------------------------------------------------------------
+    |
+    | These endpoints are specifically designed for the Chrome extension.
+    | They handle action queue management and account verification.
+    |
     */
-    Route::prefix('extension')->middleware('throttle:60,1')->group(function () {
+    Route::prefix('extension')->group(function () {
+        // Account verification - ensure LinkedIn account matches
         Route::post('/verify-account', [ExtensionController::class, 'verifyAccount']);
+
+        // Action queue management
         Route::get('/actions/next', [ExtensionController::class, 'getNextAction']);
         Route::post('/actions/{id}/complete', [ExtensionController::class, 'completeAction']);
         Route::get('/actions/stats', [ExtensionController::class, 'getActionStats']);
+
+        // Active campaigns for extension
         Route::get('/campaigns/active', [ExtensionController::class, 'getActiveCampaigns']);
+
+        // Get email extraction results for a campaign
         Route::get('/campaigns/{id}/extraction-results', [ExtensionController::class, 'getExtractionResults']);
+
+        // Update prospect email (after extraction) - uses LinkedIn ID string
         Route::patch('/prospects/{linkedinId}/email', [ExtensionController::class, 'updateProspectEmail']);
     });
 });

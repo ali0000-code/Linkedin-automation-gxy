@@ -1,29 +1,21 @@
 /**
- * @file useDashboard.js - React Query hook for dashboard statistics
+ * Dashboard React Query Hooks
  *
- * Provides a single hook that fetches aggregated stats (prospects, campaigns,
- * today's activity, active campaigns, next scheduled action).
- *
- * Polling strategy:
- * - refetchInterval: 60s -- keeps the dashboard reasonably fresh without hammering the API
- * - refetchIntervalInBackground: false -- stops polling when the user switches to another
- *   browser tab, saving server resources and bandwidth. Polling resumes when the tab regains focus.
- * - staleTime: 30s -- within this window, navigating away and back will use cached data instantly
+ * Custom hooks for fetching dashboard statistics using TanStack Query.
  */
 
 import { useQuery } from '@tanstack/react-query';
 import dashboardService from '../services/dashboard.service';
 
 /**
- * Fetch dashboard statistics with background polling.
+ * Fetch dashboard statistics
  * @returns {object} Query result with data, isLoading, error, etc.
  */
 export const useDashboard = () => {
   return useQuery({
     queryKey: ['dashboard'],
     queryFn: () => dashboardService.getStats(),
-    refetchInterval: 60000,
-    refetchIntervalInBackground: false,
-    staleTime: 30000,
+    refetchInterval: 30000, // Refresh every 30 seconds
+    staleTime: 10000,
   });
 };

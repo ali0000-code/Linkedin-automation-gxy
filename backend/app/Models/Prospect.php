@@ -7,25 +7,9 @@ use Illuminate\Database\Eloquent\Model;
 /**
  * Prospect Model
  *
- * Represents a LinkedIn lead extracted from search results by the Chrome extension.
- * Each prospect belongs to a single user (the one who extracted them).
- *
- * Prospects can be:
- * - Tagged with multiple labels (many-to-many via prospect_tag pivot)
- * - Added to multiple campaigns (many-to-many via campaign_prospects pivot)
- * - Targeted by action queue entries (the extension performs actions on their profile)
- * - Emailed if they have a known email address
- *
- * Connection statuses track the LinkedIn relationship lifecycle:
- * - not_connected: no relationship (default for freshly extracted prospects)
- * - pending: connection request sent, awaiting acceptance
- * - connected: mutual connection established
- * - withdrawn: connection request was withdrawn by the user
- *
- * The fillable list is intentionally minimal -- only fields that come from
- * LinkedIn scraping or that the user explicitly sets. Fields like headline,
- * company, location, and notes are stored in the DB but managed via migrations,
- * not listed in $fillable, because they are set through specific update flows.
+ * Represents a LinkedIn lead extracted from search results.
+ * Each prospect belongs to a user who extracted them.
+ * Prospects can be tagged and added to campaigns.
  */
 class Prospect extends Model
 {

@@ -7,29 +7,10 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
 /**
- * Campaign Action Model (Registry / Lookup table)
+ * Campaign Action Model
  *
- * Defines the types of LinkedIn actions available for building campaign steps.
- * This is a seeded registry table -- rows are created via seeders, not by users.
- *
- * Available action types:
- *   visit   - Visit the prospect's LinkedIn profile (no template needed)
- *   invite  - Send a connection request with optional note (needs invitation template)
- *   message - Send a direct message (needs message template, requires existing connection)
- *   follow  - Follow the prospect's profile (no template needed)
- *   email   - Send an email via Gmail SMTP (needs email template)
- *
- * Flags:
- * - requires_template: if true, the CampaignStep must have a message_template_id
- * - requires_connection: if true, this action only works on already-connected prospects
- * - is_active: allows disabling action types without deleting them
- *
- * The 'key' field is the programmatic identifier used throughout the codebase
- * (e.g., in ActionQueueService and ExtensionController). The 'name' field is
- * the human-readable label shown in the campaign builder UI.
- *
- * The 'order' field controls display order in the campaign builder dropdown.
- * The 'config' JSON can hold action-level defaults (not currently used).
+ * Represents a type of action that can be performed in campaigns (e.g., visit, invite, message, follow).
+ * This is a registry table that defines what actions are available in the system.
  *
  * @property int $id
  * @property string $key Unique identifier (e.g., 'visit', 'invite', 'message', 'follow')

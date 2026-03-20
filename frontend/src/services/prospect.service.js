@@ -1,9 +1,7 @@
 /**
- * @file prospect.service.js - API calls for prospect management
+ * Prospect Service
  *
- * Covers individual and bulk prospect operations, tag attachment/detachment,
- * statistics, and a specialized getProspectsWithEmail() method used by the
- * Mail page's "New Email" modal to populate the recipient dropdown.
+ * Handles all prospect-related API operations.
  */
 
 import api from './api';

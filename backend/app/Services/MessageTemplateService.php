@@ -9,15 +9,7 @@ use Illuminate\Support\Collection;
 /**
  * Message Template Service
  *
- * Business logic for managing reusable message templates.
- *
- * Templates are created by users and referenced by campaign steps.
- * The template type (invitation, message, email) is immutable after creation
- * because changing it could break active campaigns referencing the template.
- *
- * Templates support placeholder variables like {firstName}, {company}, etc.
- * that are replaced with actual prospect data when actions are generated
- * by ActionQueueService::personalizeMessage().
+ * Business logic for managing message templates.
  */
 class MessageTemplateService
 {

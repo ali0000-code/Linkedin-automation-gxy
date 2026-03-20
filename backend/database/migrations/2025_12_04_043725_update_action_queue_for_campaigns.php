@@ -8,27 +8,20 @@ return new class extends Migration
 {
     /**
      * Run the migrations.
-     *
-     * Extends the action_queue table with campaign-specific foreign keys.
-     * These columns are nullable because legacy actions may exist without campaigns.
-     *
-     * The three FKs together create a full traceability chain:
-     *   action_queue -> campaign (which campaign this belongs to)
-     *   action_queue -> campaign_prospect (which prospect-in-campaign context)
-     *   action_queue -> campaign_step (which step in the campaign sequence)
      */
     public function up(): void
     {
         Schema::table('action_queue', function (Blueprint $table) {
-            // Link action to its parent campaign
+            // Add campaign_id to link actions to campaigns
             $table->foreignId('campaign_id')->nullable()->after('prospect_id')->constrained()->onDelete('cascade');
 
-            // Link to the specific campaign-prospect record (tracks per-prospect progress)
+            // Add campaign_prospect_id to link actions to campaign prospects
             $table->foreignId('campaign_prospect_id')->nullable()->after('campaign_id')->constrained()->onDelete('cascade');
 
-            // Link to the specific campaign step (identifies which step this action executes)
+            // Add campaign_step_id to link actions to specific campaign steps
             $table->foreignId('campaign_step_id')->nullable()->after('campaign_prospect_id')->constrained()->onDelete('cascade');
 
+            // Add index for campaign_id
             $table->index('campaign_id');
         });
     }

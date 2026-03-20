@@ -10,21 +10,7 @@ use Illuminate\Http\Request;
 /**
  * GmailSettingController
  *
- * Manages Gmail SMTP configuration for sending emails to prospects.
- *
- * Setup flow:
- * 1. User enters Gmail address + App Password via store()
- *    - App Password is encrypted at rest by GmailSetting model
- *    - is_verified is reset to false until verification succeeds
- * 2. User triggers verify() to test the SMTP connection
- *    - Opens a real connection to smtp.gmail.com:587 (STARTTLS)
- *    - On success, marks settings as verified
- * 3. show() returns connection status (without exposing the password)
- * 4. destroy() disconnects Gmail and deletes the settings
- *
- * The App Password (not the actual Google password) is required because
- * this uses direct SMTP, not OAuth. Users must have 2FA enabled on their
- * Google account to generate an App Password.
+ * Handles Gmail SMTP settings for email sending.
  */
 class GmailSettingController extends Controller
 {

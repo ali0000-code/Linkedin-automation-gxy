@@ -1,9 +1,7 @@
 /**
- * @file CampaignsList.jsx - Campaign list page with filtering and inline actions
+ * Campaigns List Page
  *
- * Displays all campaigns in a searchable, filterable table with status badges,
- * progress bars, and inline start/pause/delete actions. Stats cards at the top
- * show counts by status (total, active, draft, paused, completed).
+ * Manage LinkedIn outreach campaigns with filtering, search, and actions.
  */
 
 import { useState } from 'react';

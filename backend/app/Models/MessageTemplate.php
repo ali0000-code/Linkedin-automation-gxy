@@ -8,18 +8,8 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 /**
  * Message Template Model
  *
- * Represents a reusable, personalizable message template for campaign steps.
- *
- * Three types, each with different constraints:
- * - 'invitation': Connection request notes. LinkedIn enforces a 300-character limit.
- * - 'message': Direct messages to existing connections. Limit: 5000 characters.
- * - 'email': Email templates sent via Gmail SMTP. Requires a subject line.
- *
- * Templates support placeholder variables that are replaced at action generation time:
- *   {firstName}, {lastName}, {fullName}, {company}, {headline}, {location}, {email}
- *
- * The type is immutable after creation (enforced in MessageTemplateService::updateTemplate).
- * The subject field is only relevant for email templates and is null for other types.
+ * Represents a reusable message template for campaigns.
+ * Three types: 'invitation' (connection request notes), 'message' (direct messages), and 'email'.
  */
 class MessageTemplate extends Model
 {

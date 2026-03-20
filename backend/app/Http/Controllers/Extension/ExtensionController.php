@@ -14,32 +14,8 @@ use Illuminate\Support\Facades\Log;
 /**
  * Extension Controller
  *
- * API endpoints consumed exclusively by the Chrome extension. These endpoints
- * enable the extension to:
- *
- * 1. Verify account linkage (verifyAccount):
- *    - Confirms the LinkedIn account the user is logged into matches the one
- *      linked in our system, using profile URL slug comparison with fallbacks
- *    - Three verification methods: direct ID match, profile URL slug match,
- *      and first-time URL capture (stores URL for future verifications)
- *
- * 2. Poll and execute campaign actions (getNextAction / completeAction):
- *    - Extension polls GET /actions/next every few seconds
- *    - Returns the oldest pending action where scheduled_for <= now()
- *    - Uses atomic status update (WHERE status='pending') to prevent race
- *      conditions when multiple extension tabs poll simultaneously
- *    - Extension reports results via POST /actions/{id}/complete
- *    - Daily limit enforcement: rejects requests once 50 actions/day reached
- *
- * 3. Update prospect data (updateProspectEmail):
- *    - After visiting a prospect's profile, the extension can extract their
- *      email and PATCH it back to our system
- *
- * 4. Get extraction results (getExtractionResults):
- *    - Returns prospects with/without emails for a campaign, using database-level
- *      filtering instead of loading all prospects into PHP
- *
- * Rate limited to 60 requests/minute (configured in routes/api.php).
+ * Handles API endpoints specifically for the Chrome extension.
+ * Includes action queue management and account verification.
  */
 class ExtensionController extends Controller
 {

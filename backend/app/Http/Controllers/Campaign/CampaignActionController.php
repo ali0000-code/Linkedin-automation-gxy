@@ -10,12 +10,8 @@ use Illuminate\Http\Request;
 /**
  * Campaign Action Controller
  *
- * Read-only endpoints for fetching available campaign action types.
- * These are seeded registry records (visit, invite, message, follow, email)
- * that serve as the building blocks when users create campaign steps.
- *
- * The frontend's campaign builder calls index() to populate the action type
- * dropdown, filtering to only active actions ordered by display order.
+ * Handles HTTP requests for fetching available campaign action types.
+ * These are the building blocks for creating campaigns.
  */
 class CampaignActionController extends Controller
 {

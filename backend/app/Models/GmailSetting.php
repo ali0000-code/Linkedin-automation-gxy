@@ -7,27 +7,10 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Support\Facades\Crypt;
 
 /**
- * GmailSetting Model (1:1 with User)
+ * GmailSetting Model
  *
- * Stores a user's Gmail SMTP credentials for sending emails to prospects.
- *
- * Encryption strategy:
- * - The app_password is encrypted using Laravel's Crypt::encryptString() via a
- *   custom mutator (setAppPasswordAttribute). This means the raw password never
- *   touches the database -- only the encrypted ciphertext is stored.
- * - Decryption happens on-demand via getDecryptedAppPassword() which gracefully
- *   handles decryption failures (e.g., if APP_KEY changes) by returning null.
- * - The app_password column is hidden from serialization as an extra safety layer.
- *
- * Verification flow:
- * 1. User saves email + app password via /api/settings/gmail
- * 2. User triggers verification via /api/settings/gmail/verify
- * 3. GmailSettingService opens a real SMTP connection to smtp.gmail.com:587
- * 4. On success, is_verified = true and last_verified_at is set
- * 5. Only verified Gmail settings can be used to send emails
- *
- * Note: This uses Google "App Passwords" (not OAuth), which requires the user
- * to have 2FA enabled on their Google account.
+ * Stores user's Gmail SMTP credentials for sending emails.
+ * App password is encrypted at rest using Laravel's encryption.
  */
 class GmailSetting extends Model
 {

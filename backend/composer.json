@@ -11,7 +11,6 @@
         "laravel/sanctum": "^4.2",
         "laravel/socialite": "^5.23",
         "laravel/tinker": "^2.9",
-        "predis/predis": "^3.4",
         "socialiteproviders/linkedin": "^5.0"
     },
     "require-dev": {

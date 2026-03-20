@@ -1,23 +1,10 @@
 /**
- * @file useExtension.js - Chrome extension communication hook
+ * Extension Hook
  *
- * Provides a React context + hook pattern for communicating with the
- * LinkedIn Automation Chrome extension via chrome.runtime.sendMessage.
- *
- * Architecture:
- * - ExtensionProvider: mounted once at the app root (in App.jsx), sends a single PING
- *   to detect whether the extension is installed and responding. This avoids every
- *   component that calls useExtension() from firing its own PING.
- * - useExtension(): reads connection state from context and provides command functions
- *   (syncInbox, sendLinkedInMessage, startCampaignQueue, etc.)
- *
- * Extension communication protocol:
- * - All messages are sent via chrome.runtime.sendMessage(extensionId, { type, ...data })
- * - The extension responds via the callback (not postMessage), ensuring request-response pairing
- * - If the extension is not installed, chrome.runtime.lastError is set
+ * Provides communication with the LinkedIn Automation Chrome extension.
  */
 
-import { useState, useEffect, useCallback, createContext, useContext } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 
 /**
  * Get the extension ID from localStorage or window
@@ -33,15 +20,10 @@ const getExtensionId = () => {
 };
 
 /**
- * Send a message to the Chrome extension using external messaging.
- *
- * This is the low-level transport function. Higher-level commands (syncInbox, sendLinkedInMessage, etc.)
- * are built on top of this. The message type is spread into the payload so the extension's
- * onMessageExternal handler receives { type: 'SYNC_INBOX', limit: 50, ... } as a flat object.
- *
- * @param {string} type - Message type identifier (e.g., 'PING', 'SYNC_INBOX', 'SEND_LINKEDIN_MESSAGE')
- * @param {object} data - Additional payload fields to include
- * @returns {Promise<object>} The response object from the extension's callback
+ * Send a message to the Chrome extension
+ * @param {string} type - Message type
+ * @param {object} data - Message data
+ * @returns {Promise<object>} Response from extension
  */
 const sendMessage = (type, data = {}) => {
   return new Promise((resolve, reject) => {
@@ -52,6 +34,7 @@ const sendMessage = (type, data = {}) => {
       return;
     }
 
+    // Check if chrome.runtime is available
     if (typeof chrome === 'undefined' || !chrome.runtime) {
       reject(new Error('Chrome runtime not available. Please use Chrome browser.'));
       return;
@@ -81,19 +64,15 @@ const sendMessage = (type, data = {}) => {
   });
 };
 
-// Context — holds extension connection state (initialized once)
-const ExtensionContext = createContext(null);
-
 /**
- * Provider that initializes extension connection once.
- * Wrap your app with this so all useExtension() calls share one PING.
+ * Hook to interact with the LinkedIn Automation extension
  */
-export const ExtensionProvider = ({ children }) => {
+export const useExtension = () => {
   const [isConnected, setIsConnected] = useState(false);
   const [isChecking, setIsChecking] = useState(true);
   const [lastSyncTime, setLastSyncTime] = useState(null);
 
-  // Check extension connectivity with a single PING -- runs exactly once on mount
+  // Check if extension is available
   useEffect(() => {
     const checkExtension = async () => {
       setIsChecking(true);
@@ -123,28 +102,11 @@ export const ExtensionProvider = ({ children }) => {
     };
   }, []);
 
-  return (
-    <ExtensionContext.Provider value={{ isConnected, isChecking, lastSyncTime, setLastSyncTime }}>
-      {children}
-    </ExtensionContext.Provider>
-  );
-};
-
-/**
- * Hook to interact with the LinkedIn Automation extension.
- * Reads connection state from ExtensionProvider (single PING).
- */
-export const useExtension = () => {
-  const context = useContext(ExtensionContext);
-
-  // Fallback if used outside provider (shouldn't happen, but safe)
-  const isConnected = context?.isConnected ?? false;
-  const isChecking = context?.isChecking ?? true;
-  const lastSyncTime = context?.lastSyncTime ?? null;
-  const setLastSyncTime = context?.setLastSyncTime ?? (() => {});
-
   /**
    * Trigger inbox sync with extension
+   * @param {string} type - Sync type (SYNC_INBOX, SYNC_CONVERSATION_MESSAGES, etc.)
+   * @param {object} data - Additional data
+   * @returns {Promise<object>} Sync result
    */
   const triggerSync = useCallback(async (type, data = {}) => {
     if (!isConnected) {
@@ -156,6 +118,8 @@ export const useExtension = () => {
 
   /**
    * Trigger inbox sync specifically
+   * @param {object} options - Sync options
+   * @returns {Promise<object>} Sync result
    */
   const syncInbox = useCallback(async (options = {}) => {
     const result = await triggerSync('SYNC_INBOX', {
@@ -164,10 +128,14 @@ export const useExtension = () => {
     });
     setLastSyncTime(Date.now());
     return result;
-  }, [triggerSync, setLastSyncTime]);
+  }, [triggerSync]);
 
   /**
    * Send a message through the extension
+   * @param {string} linkedinConversationId - LinkedIn conversation ID
+   * @param {string} content - Message content
+   * @param {number} messageId - Backend message ID (for tracking)
+   * @returns {Promise<object>} Send result
    */
   const sendLinkedInMessage = useCallback(async (linkedinConversationId, content, messageId) => {
     return triggerSync('SEND_LINKEDIN_MESSAGE', {
@@ -177,27 +145,45 @@ export const useExtension = () => {
     });
   }, [triggerSync]);
 
-  /** Get the current campaign action queue status from the extension */
+  /**
+   * Get queue status from extension
+   * @returns {Promise<object>} Queue status
+   */
   const getQueueStatus = useCallback(async () => {
     return sendMessage('GET_QUEUE_STATUS');
   }, []);
 
-  /** Tell the extension to start processing pending campaign actions (opens LinkedIn if needed) */
+  /**
+   * Start campaign queue
+   * @returns {Promise<object>} Result
+   */
   const startCampaignQueue = useCallback(async () => {
     return sendMessage('START_CAMPAIGN_QUEUE');
   }, []);
 
-  /** Tell the extension to stop processing the campaign queue */
+  /**
+   * Stop campaign queue
+   * @param {string} reason - Reason for stopping
+   * @returns {Promise<object>} Result
+   */
   const stopCampaignQueue = useCallback(async (reason = 'User stopped') => {
     return sendMessage('STOP_CAMPAIGN_QUEUE', { reason });
   }, []);
 
-  /** Open a specific LinkedIn conversation in a new tab via the extension */
+  /**
+   * Open a conversation on LinkedIn (pre-load for faster sending)
+   * Note: With API mode, this is a no-op but kept for compatibility
+   * @param {string} conversationId - LinkedIn conversation ID
+   * @returns {Promise<object>} Result
+   */
   const openConversation = useCallback(async (conversationId) => {
     return sendMessage('OPEN_CONVERSATION', { conversationId });
   }, []);
 
-  /** Check if the user is currently logged into LinkedIn (extension checks cookies/session) */
+  /**
+   * Check if user is logged into LinkedIn
+   * @returns {Promise<boolean>} Login status
+   */
   const checkLinkedInLogin = useCallback(async () => {
     try {
       const response = await sendMessage('CHECK_LINKEDIN_LOGIN');
@@ -208,8 +194,10 @@ export const useExtension = () => {
   }, []);
 
   /**
-   * Sync messages for a specific conversation by having the extension scrape them from LinkedIn.
-   * The extension navigates to the conversation, extracts messages, and POSTs them to the backend.
+   * Sync messages for a specific conversation
+   * @param {string} linkedinConversationId - LinkedIn conversation ID
+   * @param {number} backendConversationId - Backend conversation ID
+   * @returns {Promise<object>} Result
    */
   const syncConversationMessages = useCallback(async (linkedinConversationId, backendConversationId) => {
     return sendMessage('SYNC_CONVERSATION_MESSAGES', {
@@ -219,9 +207,8 @@ export const useExtension = () => {
   }, []);
 
   /**
-   * Lightweight new-message check used by the Sidebar for the unread badge.
-   * Returns { hasNewMessages, count, timestamp } without doing a full inbox sync.
-   * Silently returns defaults on error so the UI never breaks.
+   * Check if there are new messages detected by the extension
+   * @returns {Promise<object>} { hasNewMessages, count, timestamp }
    */
   const checkNewMessages = useCallback(async () => {
     try {
@@ -237,8 +224,8 @@ export const useExtension = () => {
   }, []);
 
   /**
-   * Quick inbox sync: a faster, lighter sync that only grabs new/changed conversations.
-   * Used on Inbox page load to get latest data without a full re-scrape.
+   * Trigger a quick inbox sync (non-blocking)
+   * @returns {Promise<object>} Result
    */
   const quickSyncInbox = useCallback(async () => {
     try {
@@ -248,7 +235,10 @@ export const useExtension = () => {
     }
   }, []);
 
-  /** Get the extension's auto-sync status (last sync timestamp, whether auto-sync is active) */
+  /**
+   * Get sync status
+   * @returns {Promise<object>} { lastSync, isAutoSyncActive, timeSinceSync }
+   */
   const getSyncStatus = useCallback(async () => {
     try {
       return await sendMessage('GET_SYNC_STATUS');

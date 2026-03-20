@@ -10,41 +10,6 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 
-/**
- * InboxController
- *
- * Manages LinkedIn messaging within the platform. Conversations and messages are
- * synced from LinkedIn via the Chrome extension and stored locally for display
- * in the web app's inbox.
- *
- * Key flows:
- * 1. Bulk sync: Extension scrapes LinkedIn inbox -> POST /api/inbox/sync
- *    - Creates/updates conversations and their messages in a single transaction
- *    - Normalizes conversation IDs to prevent duplicates from different URN formats
- *    - Pre-fetches existing records to avoid N+1 queries during sync
- *    - Handles race conditions via unique constraint catch (PostgreSQL code 23505)
- *
- * 2. Real-time incoming: Extension detects new message -> POST /api/inbox/incoming-message
- *    - Two-layer dedup: first by linkedin_message_id, then by content+time window
- *    - Increments unread count only for messages from the other person
- *
- * 3. Sending messages: User composes in webapp -> POST /api/inbox/{id}/send
- *    - Creates a 'pending' or 'scheduled' message record
- *    - Extension picks it up via GET /api/inbox/pending-messages and sends on LinkedIn
- *    - Extension confirms via POST /api/inbox/messages/{id}/mark-sent
- *
- * 4. Lightweight polling: GET /api/inbox/{id}/check
- *    - Returns only message_count and last_message_time using subqueries
- *    - Avoids loading full conversation + messages for each poll cycle
- *
- * Message deduplication strategy (syncMessagesInternal):
- * - Strategy 1: Match by linkedin_message_id (most reliable, O(1) lookup via pre-fetched map)
- * - Strategy 2: Match by content hash + sender within 24h window (fallback for missing IDs)
- * - New messages added to the recent-messages array for intra-batch dedup
- *
- * is_from_me detection: Compares sender_name against participant_name using fuzzy
- * matching (similar_text >= 80%) to handle name variations from LinkedIn.
- */
 class InboxController extends Controller
 {
     /**
@@ -126,7 +91,7 @@ class InboxController extends Controller
     }
 
     /**
-     * Get a single conversation with its messages (last 50).
+     * Get a single conversation with its messages.
      *
      * GET /api/inbox/{id}
      */
@@ -136,7 +101,7 @@ class InboxController extends Controller
 
         $conversation = Conversation::where('id', $id)
             ->where('user_id', $user->id)
-            ->with(['prospect'])
+            ->with(['messages', 'prospect'])
             ->first();
 
         if (!$conversation) {
@@ -145,51 +110,11 @@ class InboxController extends Controller
             ], 404);
         }
 
-        // Load last 50 messages only (ordered ASC for display)
-        $messages = $conversation->messages()
-            ->orderBy('sent_at', 'desc')
-            ->limit(50)
-            ->get()
-            ->reverse()
-            ->values();
-
-        $conversation->setRelation('messages', $messages);
-
         // Mark as read when viewing
         $conversation->markAsRead();
 
         return response()->json([
             'conversation' => $conversation,
-        ]);
-    }
-
-    /**
-     * Lightweight check for new messages in a conversation.
-     * Used for polling instead of fetching all messages.
-     *
-     * GET /api/inbox/{id}/check
-     */
-    public function check(Request $request, int $id): JsonResponse
-    {
-        $user = $request->user();
-
-        $result = Conversation::where('id', $id)
-            ->where('user_id', $user->id)
-            ->selectRaw('id, (SELECT COUNT(*) FROM linkedin_messages WHERE conversation_id = conversations.id) as message_count')
-            ->selectRaw('(SELECT MAX(COALESCE(sent_at, created_at)) FROM linkedin_messages WHERE conversation_id = conversations.id) as last_message_time')
-            ->selectRaw('is_unread, unread_count')
-            ->first();
-
-        if (!$result) {
-            return response()->json(['message' => 'Conversation not found.'], 404);
-        }
-
-        return response()->json([
-            'id' => $result->id,
-            'message_count' => (int) $result->message_count,
-            'last_message_time' => $result->last_message_time,
-            'is_unread' => (bool) $result->is_unread,
-            'unread_count' => (int) $result->unread_count,
         ]);
     }
 
