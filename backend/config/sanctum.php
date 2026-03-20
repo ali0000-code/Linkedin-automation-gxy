@@ -47,7 +47,11 @@ return [
     |
     */
 
-    'expiration' => null,
+    // Token lifetime: 30 days (43200 minutes).
+    // This is the global Sanctum expiration that overrides per-token expires_at.
+    // User::createTokenWithDeviceLimit() also sets a 30-day expiry on each token.
+    // After 30 days, the user must re-authenticate (OAuth or extension auth key).
+    'expiration' => env('SANCTUM_TOKEN_EXPIRATION', 60 * 24 * 30), // 30 days
 
     /*
     |--------------------------------------------------------------------------

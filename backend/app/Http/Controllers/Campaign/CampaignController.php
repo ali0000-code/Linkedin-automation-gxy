@@ -10,8 +10,22 @@ use Illuminate\Http\Request;
 /**
  * Campaign Controller
  *
- * Handles HTTP requests for campaign management.
- * Provides endpoints for CRUD operations and campaign lifecycle management.
+ * REST endpoints for campaign management and lifecycle operations.
+ *
+ * CRUD: index, show, store, update, destroy (standard Laravel resource pattern)
+ *
+ * Lifecycle endpoints:
+ * - start: Transitions draft/paused -> active. Dispatches GenerateCampaignActions
+ *   job to create action_queue entries asynchronously. For paused campaigns,
+ *   simply re-activates without regenerating actions.
+ * - pause: Transitions active -> paused. Pending actions remain in the queue
+ *   but the extension skips them (it checks campaign status before executing).
+ *
+ * Prospect management:
+ * - addProspects: Adds prospects to a campaign (bulk insert, dedup by existing)
+ * - removeProspects: Removes only pending prospects (in-progress ones stay)
+ *
+ * All operations delegate to CampaignService for business logic.
  */
 class CampaignController extends Controller
 {

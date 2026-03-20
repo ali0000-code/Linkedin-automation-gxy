@@ -1,7 +1,9 @@
 /**
- * Template Hooks
+ * @file useTemplates.js - React Query hooks for message template CRUD
  *
- * React Query hooks for managing message templates.
+ * Templates are filtered by type ('invitation', 'message', 'email') via the queryKey,
+ * so switching types fetches from cache if available. All mutations invalidate the
+ * entire 'templates' key family so every type's cache is refreshed.
  */
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';

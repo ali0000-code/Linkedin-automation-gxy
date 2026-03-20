@@ -1,14 +1,26 @@
 /**
- * Mail Hooks
+ * @file useMail.js - React Query hooks for email management
  *
- * React Query hooks for managing sent emails.
+ * Provides hooks for the Mail page: listing emails, sending, deleting, editing,
+ * and handling email extraction results from campaigns.
+ *
+ * Key data-fetching patterns:
+ * - useMails: uses keepPreviousData so the table doesn't flash empty between page changes
+ * - usePendingExtractions: polls every 30s (refetchInterval) to detect when a campaign's
+ *   email extraction completes, but disables polling when the tab is not focused
+ *   (refetchIntervalInBackground: false) to conserve resources
  */
 
 import { useQuery, useMutation, useQueryClient, keepPreviousData } from '@tanstack/react-query';
 import { mailService } from '../services/mail.service';
 
 /**
- * Hook to fetch sent emails with pagination and filtering
+ * Hook to fetch sent emails with pagination and filtering.
+ *
+ * Uses keepPreviousData as placeholderData so the table retains the previous page's
+ * rows while the next page is loading, preventing a jarring flash-to-empty effect
+ * during pagination.
+ *
  * @param {object} params - Query parameters (status, search, page, per_page)
  */
 export const useMails = (params = {}) => {
@@ -16,6 +28,7 @@ export const useMails = (params = {}) => {
     queryKey: ['mails', params],
     queryFn: () => mailService.getEmails(params),
     placeholderData: keepPreviousData,
+    staleTime: 30000,
   });
 };
 
@@ -42,13 +55,19 @@ export const useMail = (id) => {
 };
 
 /**
- * Hook to fetch pending email extractions
+ * Hook to fetch pending email extractions (campaigns that finished extracting emails).
+ *
+ * Polls every 30s so the user sees the extraction results modal as soon as
+ * a campaign's email extraction completes. Polling is disabled when the browser
+ * tab is not focused (refetchIntervalInBackground: false) to avoid wasting
+ * bandwidth and server resources for an invisible tab.
  */
 export const usePendingExtractions = () => {
   return useQuery({
     queryKey: ['pendingExtractions'],
     queryFn: () => mailService.getPendingExtractions(),
-    refetchInterval: 30000, // Refetch every 30 seconds
+    refetchInterval: 30000,
+    refetchIntervalInBackground: false,
   });
 };
 

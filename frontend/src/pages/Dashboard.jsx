@@ -1,8 +1,15 @@
 /**
- * Dashboard Page
+ * @file Dashboard.jsx - Main dashboard page
  *
- * Main dashboard showing overview statistics, today's activity,
- * active campaigns, and extension status.
+ * Displays an overview of the user's LinkedIn automation:
+ * - Quick stats cards (prospects, campaigns, today's actions, emails)
+ * - Today's activity breakdown with progress bar
+ * - Active campaigns with progress indicators
+ * - Chrome extension connection status (from ExtensionProvider context)
+ *
+ * The extension status section reads isConnected and lastSyncTime from
+ * useExtension(), which is powered by the single PING from ExtensionProvider.
+ * Dashboard data auto-refreshes every 60s via useDashboard()'s refetchInterval.
  */
 
 import { useNavigate } from 'react-router-dom';

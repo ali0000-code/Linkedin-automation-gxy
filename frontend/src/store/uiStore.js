@@ -1,7 +1,12 @@
 /**
- * UI Store (Zustand)
+ * @file uiStore.js - Zustand UI state store
  *
- * Global state management for UI-related state (modals, sidebars, etc.)
+ * Manages ephemeral UI state that is shared across components but does NOT persist
+ * across page reloads (no persist middleware). Includes:
+ * - Modal open/close state and the item being edited/deleted
+ * - Mobile sidebar toggle
+ * - Prospect multi-select state that persists across pagination (selectedProspects array)
+ *   so users can select prospects on page 1, navigate to page 2, and still have page 1 selections
  */
 
 import { create } from 'zustand';

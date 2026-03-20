@@ -1,7 +1,8 @@
 /**
- * Campaign API Service
+ * @file campaign.service.js - API calls for campaign lifecycle management
  *
- * Handles all HTTP requests related to campaigns.
+ * Covers campaign CRUD, prospect assignment, start/pause actions, statistics,
+ * and fetching available action types (visit, invite, message, follow, email, etc.).
  */
 
 import api from './api';

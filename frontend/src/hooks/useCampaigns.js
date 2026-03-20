@@ -1,7 +1,13 @@
 /**
- * Campaign React Query Hooks
+ * @file useCampaigns.js - React Query hooks for campaign CRUD and lifecycle
  *
- * Custom hooks for fetching and mutating campaign data using TanStack Query.
+ * Key patterns:
+ * - useCampaigns: uses keepPreviousData (placeholderData) to prevent table flash during pagination
+ * - useCampaignStats: staleTime of 30s so stats don't refetch on every render
+ * - useCampaignActions: staleTime=Infinity because action types are static configuration
+ * - useStartCampaign: after backend confirms, fires a fire-and-forget message to the Chrome
+ *   extension (startCampaignQueue) so it begins processing actions immediately, without
+ *   blocking the UI if the extension is unreachable
  */
 
 import { useQuery, useMutation, useQueryClient, keepPreviousData } from '@tanstack/react-query';
@@ -9,7 +15,11 @@ import campaignService from '../services/campaign.service';
 import { startCampaignQueue } from '../services/extension.service';
 
 /**
- * Fetch paginated campaigns with filters
+ * Fetch paginated campaigns with filters.
+ *
+ * placeholderData: keepPreviousData retains the old page's data in the UI while
+ * the new page is being fetched, avoiding an empty-table flash during pagination.
+ *
  * @param {object} filters - Query filters (status, search, per_page, page)
  * @returns {object} Query result with data, isLoading, error, etc.
  */
@@ -43,6 +53,7 @@ export const useCampaignStats = () => {
   return useQuery({
     queryKey: ['campaign-stats'],
     queryFn: () => campaignService.getStats(),
+    staleTime: 30000,
   });
 };
 

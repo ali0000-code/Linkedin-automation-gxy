@@ -13,7 +13,17 @@ use Illuminate\Http\Request;
 /**
  * Dashboard Controller
  *
- * Provides aggregated statistics for the dashboard homepage.
+ * Provides a single endpoint that returns all aggregated statistics for the
+ * dashboard homepage. Designed to be called once on page load.
+ *
+ * Performance strategy:
+ * - Uses conditional aggregation (SUM(CASE WHEN ...)) to compute multiple
+ *   counts in a single query instead of running separate COUNT queries per status.
+ *   This reduces the prospect stats from 4 queries to 1, campaign stats from 5 to 1,
+ *   and today's activity from 6 to 1.
+ * - Active campaigns use withCount() for prospect status breakdowns (N+1 fix)
+ * - Today's action counts per campaign are fetched in one grouped query, then
+ *   mapped in PHP, avoiding N+1 queries inside the campaign loop.
  */
 class DashboardController extends Controller
 {
@@ -27,7 +37,8 @@ class DashboardController extends Controller
         $user = $request->user();
         $today = Carbon::today();
 
-        // Get prospect stats
+        // Single-query prospect stats using conditional aggregation.
+        // This replaces 4 separate COUNT queries (total, connected, pending, with_email).
         $prospectStats = Prospect::where('user_id', $user->id)
             ->selectRaw('COUNT(*) as total')
             ->selectRaw("SUM(CASE WHEN connection_status = 'connected' THEN 1 ELSE 0 END) as connected")
@@ -35,7 +46,7 @@ class DashboardController extends Controller
             ->selectRaw('SUM(CASE WHEN email IS NOT NULL AND email != \'\' THEN 1 ELSE 0 END) as with_email')
             ->first();
 
-        // Get campaign stats by status
+        // Single-query campaign stats using conditional aggregation (replaces 5 COUNT queries).
         $campaignStats = Campaign::where('user_id', $user->id)
             ->selectRaw('COUNT(*) as total')
             ->selectRaw("SUM(CASE WHEN status = 'active' THEN 1 ELSE 0 END) as active")
@@ -80,14 +91,23 @@ class DashboardController extends Controller
                 },
             ])
             ->with(['steps.action:id,key,name'])
-            ->get()
-            ->map(function ($campaign) use ($today) {
-                // Get today's action count for this campaign
-                $todayActions = ActionQueue::where('campaign_id', $campaign->id)
-                    ->where('status', 'completed')
-                    ->whereDate('executed_at', $today)
-                    ->count();
+            ->get();
 
+        // N+1 FIX: Fetch today's action counts for ALL active campaigns in one grouped query,
+        // then map results by campaign_id in PHP. Without this, each campaign in the loop
+        // below would trigger its own COUNT query.
+        $todayActionCounts = [];
+        if ($activeCampaigns->isNotEmpty()) {
+            $todayActionCounts = ActionQueue::whereIn('campaign_id', $activeCampaigns->pluck('id'))
+                ->where('status', 'completed')
+                ->whereDate('executed_at', $today)
+                ->selectRaw('campaign_id, COUNT(*) as count')
+                ->groupBy('campaign_id')
+                ->pluck('count', 'campaign_id')
+                ->toArray();
+        }
+
+        $activeCampaigns = $activeCampaigns->map(function ($campaign) use ($todayActionCounts) {
                 return [
                     'id' => $campaign->id,
                     'name' => $campaign->name,
@@ -99,7 +119,7 @@ class DashboardController extends Controller
                     'progress_percent' => $campaign->total_prospects > 0
                         ? round(($campaign->completed_prospects / $campaign->total_prospects) * 100)
                         : 0,
-                    'today_actions' => $todayActions,
+                    'today_actions' => $todayActionCounts[$campaign->id] ?? 0,
                     'action_type' => $campaign->steps->first()?->action?->name ?? 'Unknown',
                 ];
             });

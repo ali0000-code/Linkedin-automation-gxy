@@ -1,9 +1,16 @@
 /**
- * Prospects Page (New Design)
+ * @file ProspectsNew.jsx - Prospects management page (split-panel design)
  *
- * Merged view with Tags on left sidebar and Prospects table on right.
- * Supports bulk operations on both tags and prospects.
- * Uses "Load More" instead of pagination.
+ * Left panel: Tag sidebar with create/edit/delete, bulk selection, and click-to-filter.
+ * Right panel: Prospect list with search, status filter, bulk tag assignment, bulk delete.
+ *
+ * Uses "Load More" infinite scroll instead of traditional pagination:
+ * - accumulatedProspects accumulates rows across pages (deduped by ID)
+ * - Resetting filters clears accumulated rows and goes back to page 1
+ * - Selection (selectedProspects from uiStore) persists across loaded pages
+ *
+ * "Add Prospects" dropdown links to LinkedIn Search and Network pages,
+ * where the Chrome extension's popup can extract prospect data.
  */
 
 import { useState, useEffect, useMemo } from 'react';

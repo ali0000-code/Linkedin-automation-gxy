@@ -1,11 +1,15 @@
 /**
- * Campaign Details Page
+ * @file CampaignDetails.jsx - Single campaign detail view
  *
- * View detailed information about a campaign including:
- * - Campaign info, status, and statistics
- * - Campaign steps/actions
- * - List of prospects in the campaign
- * - Actions to start/pause/delete campaign
+ * Displays comprehensive campaign information:
+ * - Header with name, status badge, and start/pause/resume actions
+ * - Stats grid (total prospects, processed, success, failed)
+ * - Visual progress bar
+ * - Campaign configuration (daily limit, dates, action steps with templates)
+ * - Full prospect list with per-prospect status and current step
+ * - Danger zone with delete action
+ *
+ * Campaign ID is extracted from the URL via useParams().
  */
 
 import { useParams, useNavigate } from 'react-router-dom';

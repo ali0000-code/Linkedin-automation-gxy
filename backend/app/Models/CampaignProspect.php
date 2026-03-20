@@ -8,10 +8,22 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
 /**
- * Campaign Prospect Model
+ * Campaign Prospect Model (Pivot with extra columns)
  *
- * Represents a prospect's participation in a campaign.
- * Tracks their progress through campaign steps and current status.
+ * Represents a prospect's participation in a campaign. This is the join table
+ * between campaigns and prospects, but with significant state of its own.
+ *
+ * Status transitions:
+ *   pending -> in_progress -> completed   (happy path)
+ *   pending -> in_progress -> failed      (action failed, no retries left)
+ *   pending -> skipped                    (manually skipped or pre-filtered out)
+ *
+ * The current_step field tracks which step index the prospect is on (0-based).
+ * When current_step >= total campaign steps, the prospect is marked completed.
+ * Each time an action completes for this prospect, advanceStep() increments current_step.
+ *
+ * failure_reason stores the error message from the Chrome extension when an action fails,
+ * providing visibility into why a prospect couldn't be processed.
  *
  * @property int $id
  * @property int $campaign_id

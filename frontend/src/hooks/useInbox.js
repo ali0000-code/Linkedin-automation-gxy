@@ -1,7 +1,17 @@
 /**
- * Inbox Hooks
+ * @file useInbox.js - React Query hooks for LinkedIn messaging inbox
  *
- * React Query hooks for LinkedIn messaging inbox management.
+ * Provides hooks for:
+ * - Fetching conversations and individual conversation messages
+ * - Sending messages with optimistic UI updates (instant display before server confirms)
+ * - Marking conversations as read / deleting with optimistic cache manipulation
+ * - Scheduling, cancelling, and updating scheduled messages
+ *
+ * Optimistic update pattern used in useSendMessage, useMarkAsRead, useDeleteConversation:
+ * 1. onMutate: cancel in-flight queries, snapshot current cache, optimistically update cache
+ * 2. onError: roll back to the snapshot if the API call fails
+ * 3. onSettled: invalidate queries to re-sync with server truth regardless of success/failure
+ * This provides instant UI feedback while maintaining eventual consistency with the backend.
  */
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
@@ -73,7 +83,13 @@ export const useSyncMessages = () => {
 };
 
 /**
- * Hook to send a message
+ * Hook to send a message with optimistic UI update.
+ *
+ * onMutate: immediately appends a temporary message (with temp ID and 'pending' status)
+ * to the conversation cache so the user sees their message in the chat instantly.
+ * onError: rolls back to the previous cache snapshot if the API call fails.
+ * onSettled: invalidates both the conversation and the conversations list to get
+ * the real message ID, status, and updated last_message preview from the server.
  */
 export const useSendMessage = () => {
   const queryClient = useQueryClient();
@@ -81,7 +97,41 @@ export const useSendMessage = () => {
   return useMutation({
     mutationFn: ({ conversationId, content }) =>
       inboxService.sendMessage(conversationId, content),
-    onSuccess: (_, variables) => {
+    onMutate: async ({ conversationId, content }) => {
+      // Cancel any in-flight fetches to prevent them from overwriting our optimistic update
+      await queryClient.cancelQueries({ queryKey: ['conversation', conversationId] });
+      // Snapshot the current cache for rollback on error
+      const previous = queryClient.getQueryData(['conversation', conversationId]);
+
+      // Optimistically append the new message with a temporary ID
+      queryClient.setQueryData(['conversation', conversationId], (old) => {
+        if (!old?.conversation) return old;
+        return {
+          ...old,
+          conversation: {
+            ...old.conversation,
+            messages: [
+              ...(old.conversation.messages || []),
+              {
+                id: `temp-${Date.now()}`,
+                content,
+                is_from_me: true,
+                status: 'pending',
+                sent_at: new Date().toISOString(),
+              },
+            ],
+          },
+        };
+      });
+
+      return { previous };
+    },
+    onError: (_, variables, context) => {
+      if (context?.previous) {
+        queryClient.setQueryData(['conversation', variables.conversationId], context.previous);
+      }
+    },
+    onSettled: (_, __, variables) => {
       queryClient.invalidateQueries({ queryKey: ['conversation', variables.conversationId] });
       queryClient.invalidateQueries({ queryKey: ['conversations'] });
     },
@@ -89,14 +139,41 @@ export const useSendMessage = () => {
 };
 
 /**
- * Hook to mark conversation as read
+ * Hook to mark conversation as read with optimistic update.
+ *
+ * Immediately sets is_unread=false and unread_count=0 in the cached conversation list
+ * so the unread badge disappears before the server responds.
+ * Uses setQueriesData (plural) to update ALL conversation list query variants
+ * (different page/filter combinations that might be cached).
  */
 export const useMarkAsRead = () => {
   const queryClient = useQueryClient();
 
   return useMutation({
     mutationFn: (conversationId) => inboxService.markAsRead(conversationId),
-    onSuccess: () => {
+    onMutate: async (conversationId) => {
+      await queryClient.cancelQueries({ queryKey: ['conversations'] });
+      const previous = queryClient.getQueryData(['conversations', { page: 1, per_page: 30 }]);
+
+      // Optimistically mark as read across all cached conversation list variants
+      queryClient.setQueriesData({ queryKey: ['conversations'] }, (old) => {
+        if (!old?.data) return old;
+        return {
+          ...old,
+          data: old.data.map((c) =>
+            c.id === conversationId ? { ...c, is_unread: false, unread_count: 0 } : c
+          ),
+        };
+      });
+
+      return { previous };
+    },
+    onError: (_, __, context) => {
+      if (context?.previous) {
+        queryClient.setQueryData(['conversations', { page: 1, per_page: 30 }], context.previous);
+      }
+    },
+    onSettled: () => {
       queryClient.invalidateQueries({ queryKey: ['conversations'] });
       queryClient.invalidateQueries({ queryKey: ['inboxStats'] });
     },
@@ -104,14 +181,37 @@ export const useMarkAsRead = () => {
 };
 
 /**
- * Hook to delete a conversation
+ * Hook to delete a conversation with optimistic removal.
+ *
+ * Immediately filters the conversation out of the cached list so the UI
+ * updates instantly. On error, restores the previous list.
  */
 export const useDeleteConversation = () => {
   const queryClient = useQueryClient();
 
   return useMutation({
     mutationFn: (id) => inboxService.deleteConversation(id),
-    onSuccess: () => {
+    onMutate: async (id) => {
+      await queryClient.cancelQueries({ queryKey: ['conversations'] });
+      const previous = queryClient.getQueryData(['conversations', { page: 1, per_page: 30 }]);
+
+      // Optimistically remove conversation from all cached list variants
+      queryClient.setQueriesData({ queryKey: ['conversations'] }, (old) => {
+        if (!old?.data) return old;
+        return {
+          ...old,
+          data: old.data.filter((c) => c.id !== id),
+        };
+      });
+
+      return { previous };
+    },
+    onError: (_, __, context) => {
+      if (context?.previous) {
+        queryClient.setQueryData(['conversations', { page: 1, per_page: 30 }], context.previous);
+      }
+    },
+    onSettled: () => {
       queryClient.invalidateQueries({ queryKey: ['conversations'] });
       queryClient.invalidateQueries({ queryKey: ['inboxStats'] });
     },

@@ -11,7 +11,19 @@ use Illuminate\Http\Request;
 /**
  * Message Template Controller
  *
- * Handles CRUD operations for message templates.
+ * REST endpoints for managing reusable message templates.
+ *
+ * Templates are used in campaign steps to define the message content sent to
+ * prospects. The store/update methods enforce LinkedIn's character limits:
+ * - Invitation (connection request notes): max 300 characters (LinkedIn limit)
+ * - Message (direct messages): max 5000 characters
+ * - Email: requires a subject line, content limit is 10000 characters
+ *
+ * These limits are enforced server-side (in addition to frontend validation)
+ * because the extension uses the stored content directly.
+ *
+ * Template type is immutable after creation -- the update endpoint does not
+ * allow changing the type field.
  */
 class MessageTemplateController extends Controller
 {
@@ -69,7 +81,8 @@ class MessageTemplateController extends Controller
             'subject' => 'required_if:type,email|nullable|string|max:255',
         ]);
 
-        // Additional validation for invitation messages (300 char limit)
+        // LinkedIn enforces a 300-char limit on connection request notes.
+        // We validate server-side because the extension sends the content directly.
         if ($validated['type'] === 'invitation' && mb_strlen($validated['content']) > 300) {
             return response()->json([
                 'message' => 'Invitation messages must be 300 characters or less',

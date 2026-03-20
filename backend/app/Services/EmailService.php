@@ -16,7 +16,24 @@ use Symfony\Component\Mime\Email;
 /**
  * EmailService
  *
- * Handles sending emails to prospects using user's Gmail SMTP settings.
+ * Handles sending emails to prospects using the user's Gmail SMTP credentials.
+ *
+ * Architecture decision: This service creates its own Symfony EsmtpTransport
+ * instance instead of using Laravel's Mail facade. This is because each user
+ * has their own Gmail credentials, and Laravel's mailer is configured globally.
+ * Creating a per-request transport ensures the correct user's credentials are used.
+ *
+ * SMTP configuration:
+ * - Host: smtp.gmail.com
+ * - Port: 587 (STARTTLS -- starts plain, upgrades to TLS automatically)
+ * - Auth: Gmail address + App Password (not the actual Google account password)
+ *
+ * Error handling: SMTP errors are caught and translated to user-friendly messages
+ * via getReadableError(). Common failures: authentication errors (wrong app password),
+ * connection timeouts, invalid recipient addresses.
+ *
+ * Stats: getStats() runs multiple scoped queries using clone() to avoid query
+ * builder state pollution between chained scope calls.
  */
 class EmailService
 {

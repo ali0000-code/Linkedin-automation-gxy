@@ -1,23 +1,34 @@
 /**
- * Prospects React Query Hooks
+ * @file useProspects.js - React Query hooks for prospect CRUD and tagging
  *
- * Custom hooks for fetching and mutating prospect data using TanStack Query.
+ * Key patterns:
+ * - useProspects accepts an `options` spread param so callers can pass `{ enabled: false }`
+ *   to conditionally disable the query (e.g., the Tags page only fetches when a tag is selected)
+ * - placeholderData: keepPreviousData prevents table flash during pagination
+ * - All mutations invalidate both the specific item and the list queries to keep the UI consistent
  */
 
 import { useQuery, useMutation, useQueryClient, keepPreviousData } from '@tanstack/react-query';
 import { prospectService } from '../services/prospect.service';
 
 /**
- * Fetch paginated prospects with filters
+ * Fetch paginated prospects with filters.
+ *
+ * The `options` spread allows callers to override any React Query option,
+ * most commonly `{ enabled: !!someCondition }` to conditionally disable the query.
+ * For example, the Tags page passes `{ enabled: !!viewingTag }` so it only
+ * fetches prospects when a tag is actually selected.
+ *
  * @param {object} filters - Query filters (per_page, connection_status, tag_id, search, page)
+ * @param {object} options - Additional React Query options (e.g., { enabled })
  * @returns {object} Query result with data, isLoading, error, etc.
  */
 export const useProspects = (filters = {}, options = {}) => {
   return useQuery({
     queryKey: ['prospects', filters],
     queryFn: () => prospectService.getProspects(filters),
-    placeholderData: keepPreviousData, // Keep old data while fetching new page
-    staleTime: 30000, // Consider data fresh for 30 seconds
+    placeholderData: keepPreviousData,
+    staleTime: 30000,
     ...options,
   });
 };

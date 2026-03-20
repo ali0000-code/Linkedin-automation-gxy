@@ -1,7 +1,8 @@
 /**
- * Campaign Create Page
+ * @file CampaignCreate.jsx - Campaign creation page
  *
- * Page wrapper for the campaign creation wizard.
+ * Thin wrapper that provides the page header and renders the CampaignWizard component,
+ * which handles the multi-step campaign creation flow.
  */
 
 import Layout from '../components/layout/Layout';

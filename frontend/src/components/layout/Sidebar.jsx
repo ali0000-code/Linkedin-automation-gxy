@@ -1,8 +1,14 @@
 /**
- * Sidebar Component
+ * @file Sidebar.jsx - Main navigation sidebar
  *
- * Main navigation sidebar with logo and menu items.
- * Supports expandable sub-items for nested navigation.
+ * Fixed-position dark sidebar with:
+ * - Logo and app name
+ * - Navigation links with active state highlighting
+ * - Expandable sub-items (Campaign -> Campaigns List, Message Templates)
+ * - Inbox unread badge: polls the extension every 30 seconds for new messages
+ *   via checkNewMessages(). When new messages are detected, it invalidates the
+ *   inboxStats query which updates the unread count badge next to the Inbox link.
+ * - User profile section with logout button
  */
 
 import { useState, useEffect } from 'react';
@@ -73,7 +79,14 @@ const Sidebar = () => {
   const { data: stats } = useInboxStats();
   const { isConnected, checkNewMessages } = useExtension();
 
-  // Check for new messages from extension every 10 seconds
+  /**
+   * Poll the extension for new messages every 30 seconds to update the unread badge.
+   *
+   * Uses the lightweight GET_NEW_MESSAGES_STATUS extension command (no LinkedIn scraping).
+   * When new messages are detected, invalidates inboxStats and conversations queries
+   * so the badge count and conversation list stay current even if the user isn't on the Inbox page.
+   * Only runs when the extension is connected (isConnected from ExtensionProvider).
+   */
   useEffect(() => {
     if (!isConnected) return;
 
@@ -81,20 +94,17 @@ const Sidebar = () => {
       try {
         const result = await checkNewMessages();
         if (result.hasNewMessages && result.count > 0) {
-          // Refresh inbox stats to update the badge
           queryClient.invalidateQueries({ queryKey: ['inboxStats'] });
           queryClient.invalidateQueries({ queryKey: ['conversations'] });
         }
       } catch (e) {
-        // Ignore errors
+        // Silently ignore -- extension may be temporarily unreachable
       }
     };
 
-    // Check immediately
     checkForNewMessages();
 
-    // Then poll every 10 seconds
-    const pollInterval = setInterval(checkForNewMessages, 10000);
+    const pollInterval = setInterval(checkForNewMessages, 30000);
 
     return () => clearInterval(pollInterval);
   }, [isConnected, checkNewMessages, queryClient]);

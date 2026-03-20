@@ -1,7 +1,13 @@
 /**
- * Inbox Service
+ * @file inbox.service.js - API calls for LinkedIn messaging inbox
  *
- * API calls for LinkedIn messaging inbox management.
+ * Provides methods for conversation CRUD, message sending/scheduling,
+ * and syncing data between the Chrome extension and the backend.
+ *
+ * Notable endpoint: checkConversation(id) -- a lightweight endpoint that returns
+ * only { message_count, last_message_time, is_unread, unread_count } without loading
+ * full message bodies. Used by the Inbox page's 15-second polling to detect new messages
+ * without the expense of a full conversation fetch.
  */
 
 import api from './api';
@@ -24,6 +30,16 @@ const inboxService = {
    */
   async getConversation(id) {
     const response = await api.get(`/inbox/${id}`);
+    return response.data;
+  },
+
+  /**
+   * Lightweight check for new messages in a conversation
+   * @param {number} id - Conversation ID
+   * @returns {Promise<object>} { message_count, last_message_time, is_unread, unread_count }
+   */
+  async checkConversation(id) {
+    const response = await api.get(`/inbox/${id}/check`);
     return response.data;
   },
 

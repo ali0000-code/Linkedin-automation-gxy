@@ -1,17 +1,33 @@
 /**
- * Authentication Store (Zustand)
+ * @file authStore.js - Zustand authentication store
  *
- * Global state management for user authentication.
- * Persists token to localStorage automatically.
+ * Manages global authentication state for the webapp:
+ * - Token, user object, and isAuthenticated flag
+ * - Automatic persistence to localStorage via Zustand's `persist` middleware
+ *   (only token, user, and isAuthenticated are persisted -- extensionSynced is session-only)
+ * - Chrome extension sync: sends AUTH_SUCCESS message to the extension so it can
+ *   make authenticated API calls on the user's behalf
+ *
+ * Token is stored in BOTH Zustand persist storage (key: 'auth-storage') AND
+ * a separate localStorage key ('auth_token') for the axios interceptor to read.
+ * This dual-write approach keeps the interceptor decoupled from Zustand.
  */
 
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 
 /**
- * Sync authentication token with Chrome extension
- * @param {string} token - Auth token to send
- * @returns {Promise<boolean>} True if sync successful
+ * Sync authentication token with the Chrome extension via chrome.runtime.sendMessage.
+ *
+ * The extension ID can come from three sources (checked in priority order):
+ * 1. localStorage -- set by the extension's webapp-connector.js content script at page load
+ * 2. window global -- also set by webapp-connector.js for immediate availability
+ * 3. .env variable -- fallback for development when the extension ID is known ahead of time
+ *
+ * Returns a Promise that always resolves (never rejects) so callers don't need try/catch.
+ *
+ * @param {string} token - Bearer token to send to the extension
+ * @returns {Promise<boolean>} true if the extension acknowledged, false otherwise
  */
 const syncTokenWithExtension = async (token) => {
   if (!token) {
@@ -19,7 +35,7 @@ const syncTokenWithExtension = async (token) => {
     return false;
   }
 
-  // Get extension ID from multiple sources
+  // Try multiple sources for the extension ID -- the content script may not have injected yet
   const fromLocalStorage = localStorage.getItem('linkedin_automation_extension_id');
   const fromWindow = window.__LINKEDIN_AUTOMATION_EXTENSION_ID__;
   const fromEnv = import.meta.env?.VITE_EXTENSION_ID;
@@ -141,7 +157,13 @@ export const useAuthStore = create(
       },
     }),
     {
-      name: 'auth-storage', // localStorage key
+      name: 'auth-storage', // localStorage key for Zustand persist middleware
+      /**
+       * Only persist auth-critical fields. `extensionSynced` is deliberately excluded
+       * because it represents a session-level state: the extension should be re-synced
+       * on each page load (handled by App.jsx), not assumed to still be connected
+       * from a previous browser session.
+       */
       partialize: (state) => ({
         token: state.token,
         user: state.user,

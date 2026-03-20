@@ -10,8 +10,20 @@ use Illuminate\Support\Facades\Config;
 /**
  * GmailSettingService
  *
- * Handles Gmail SMTP settings for users.
- * Manages storage, retrieval, and verification of Gmail credentials.
+ * Manages Gmail SMTP credential storage, verification, and configuration.
+ *
+ * This service is the single entry point for all Gmail-related operations.
+ * It ensures credentials are always encrypted (via GmailSetting model mutator)
+ * and provides a verification method that tests real SMTP connectivity.
+ *
+ * Verification approach: Instead of just validating the format, verifyConnection()
+ * opens an actual SMTP connection to smtp.gmail.com:587, authenticates with the
+ * stored credentials, then disconnects. This catches invalid passwords, blocked
+ * accounts, and network issues before the user tries to send real emails.
+ *
+ * configureMailer() is available for scenarios where Laravel's Mail facade
+ * needs to use the user's Gmail credentials (not currently used in production
+ * since EmailService creates its own Symfony transport directly).
  */
 class GmailSettingService
 {

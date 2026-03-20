@@ -1,7 +1,24 @@
 /**
- * Inbox Page
+ * @file Inbox.jsx - LinkedIn messaging inbox page
  *
- * LinkedIn messaging inbox with conversation list and chat view.
+ * Two-panel layout: conversation list (left) and chat view (right).
+ *
+ * Key architectural decisions:
+ * - Lightweight polling: every 15 seconds, calls the cheap checkConversation() endpoint
+ *   that returns only { message_count } instead of full messages. Only when the count
+ *   changes does it trigger a full conversation fetch. This dramatically reduces bandwidth.
+ * - Baseline count tracking: lastKnownCountRef stores the message count per conversation.
+ *   The first check establishes a baseline; subsequent checks compare against it.
+ *   After sending a message, the baseline is bumped (+1) to prevent the poll from
+ *   triggering a redundant refetch for the message we just sent.
+ * - Auto-sync on open: when a conversation with zero messages is selected AND the extension
+ *   is connected, the page automatically asks the extension to sync that conversation's
+ *   messages from LinkedIn. A Set (syncedConversationsRef) prevents repeated sync attempts.
+ * - Optimistic message sending: the message appears instantly in the chat (via useSendMessage's
+ *   onMutate), then the backend creates a pending message, and finally the extension sends
+ *   it via LinkedIn's API. Race conditions are prevented by capturing conversation IDs
+ *   at the start of handleSendMessage.
+ * - Message scheduling: users can schedule messages for future delivery via a date/time picker.
  */
 
 import { useState, useEffect, useRef } from 'react';
@@ -21,6 +38,7 @@ import {
   useSendScheduledMessage,
 } from '../hooks/useInbox';
 import { useExtension } from '../hooks/useExtension';
+import inboxService from '../services/inbox.service';
 
 // Icons
 const InboxIcon = () => (
@@ -490,13 +508,34 @@ const Inbox = () => {
     });
   }, [isConnected, quickSyncInbox, queryClient]);
 
-  // Poll for new messages every 5 seconds when a conversation is selected
+  /**
+   * Lightweight polling: every 15s, hit the cheap /inbox/{id}/check endpoint (returns just
+   * message_count). Compare against our stored baseline -- only invalidate the full
+   * conversation query when the count actually changed. This avoids fetching all message
+   * bodies on every poll cycle, keeping network usage minimal.
+   */
+  const lastKnownCountRef = useRef({});
   useEffect(() => {
     if (!selectedConversationId) return;
 
-    const pollInterval = setInterval(() => {
-      queryClient.invalidateQueries({ queryKey: ['conversation', selectedConversationId] });
-    }, 5000);
+    const pollInterval = setInterval(async () => {
+      try {
+        const check = await inboxService.checkConversation(selectedConversationId);
+        const lastCount = lastKnownCountRef.current[selectedConversationId];
+
+        if (lastCount === undefined) {
+          // First check — store baseline
+          lastKnownCountRef.current[selectedConversationId] = check.message_count;
+        } else if (check.message_count !== lastCount) {
+          // Message count changed — fetch full conversation
+          lastKnownCountRef.current[selectedConversationId] = check.message_count;
+          queryClient.invalidateQueries({ queryKey: ['conversation', selectedConversationId] });
+          queryClient.invalidateQueries({ queryKey: ['conversations'] });
+        }
+      } catch {
+        // Silently ignore poll errors
+      }
+    }, 15000);
 
     return () => clearInterval(pollInterval);
   }, [selectedConversationId, queryClient]);
@@ -546,11 +585,8 @@ const Inbox = () => {
   // Handle conversation selection
   const handleSelectConversation = async (conversation) => {
     setSelectedConversationId(conversation.id);
-
-    // Mark as read
-    if (conversation.is_unread) {
-      markAsReadMutation.mutate(conversation.id);
-    }
+    // Reset poll baseline for this conversation
+    delete lastKnownCountRef.current[conversation.id];
   };
 
   // Handle sync
@@ -570,10 +606,15 @@ const Inbox = () => {
     }
   };
 
-  // Handle send message
+  /**
+   * Handle sending a LinkedIn message.
+   *
+   * Flow: create pending message in backend -> extension sends via LinkedIn API -> update status.
+   * IMPORTANT: conversation IDs are captured at the START because the user could switch
+   * to a different conversation while the async chain is running. Without this capture,
+   * we'd send to whichever conversation is selected when the await resolves.
+   */
   const handleSendMessage = async (content) => {
-    // IMPORTANT: Capture conversation IDs at the START to prevent race conditions
-    // If user switches conversations during async operations, we still send to the original conversation
     const targetConversationId = selectedConversationId;
     const targetLinkedInConversationId = selectedConversation?.linkedin_conversation_id;
 
@@ -600,6 +641,11 @@ const Inbox = () => {
             result.data.id
           );
           console.log('LinkedIn API send result:', sendResult);
+
+          // Bump baseline so poll doesn't redundantly refetch
+          if (lastKnownCountRef.current[targetConversationId] !== undefined) {
+            lastKnownCountRef.current[targetConversationId]++;
+          }
 
           // Refresh to get updated message status
           setTimeout(() => {

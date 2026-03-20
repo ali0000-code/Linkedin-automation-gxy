@@ -1,7 +1,8 @@
 /**
- * Dashboard API Service
+ * @file dashboard.service.js - API call for dashboard statistics
  *
- * Handles HTTP requests for dashboard statistics.
+ * Single endpoint that returns aggregated stats: prospect totals, campaign counts,
+ * today's completed/pending actions by type, active campaign progress, and next scheduled action.
  */
 
 import api from './api';

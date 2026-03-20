@@ -1,7 +1,9 @@
 /**
- * Tags React Query Hooks
+ * @file useTags.js - React Query hooks for tag CRUD
  *
- * Custom hooks for fetching and mutating tag data using TanStack Query.
+ * Tags are lightweight entities (typically <50 total) so they use a longer staleTime (60s)
+ * and no pagination. Mutations invalidate both the 'tags' and 'prospects' query keys
+ * because prospect rows display their associated tags inline.
  */
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
