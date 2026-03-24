@@ -98,7 +98,9 @@ async function setExtractionLimit(limit) {
 async function clearAuth() {
   await chrome.storage.local.remove([
     STORAGE_KEYS.AUTH_TOKEN,
-    STORAGE_KEYS.USER_EMAIL
+    STORAGE_KEYS.USER_EMAIL,
+    'auth_key',
+    'user',
   ]);
 }
 

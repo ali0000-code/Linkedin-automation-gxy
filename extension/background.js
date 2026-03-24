@@ -484,25 +484,32 @@ chrome.runtime.onMessageExternal.addListener((message, sender, sendResponse) => 
     return true; // Async response
   }
 
-  if (message.type === 'AUTH_SUCCESS' && message.token) {
-    handleAuthSuccess(message.token)
-      .then(() => {
-        sendResponse({ success: true });
-        // Broadcast auth state change to all extension pages
-        chrome.runtime.sendMessage({
-          type: 'AUTH_STATE_CHANGED',
-          authenticated: true
-        }).catch(() => {
-          // Ignore errors if no listeners (extension pages not open)
-          console.log('[Background] No listeners for AUTH_STATE_CHANGED');
-        });
+  // AUTH_KEY_LOGIN: Extension authenticates via auth key from Settings page
+  if (message.type === 'AUTH_KEY_LOGIN' && message.auth_key) {
+    handleAuthKeyLogin(message.auth_key)
+      .then((result) => {
+        sendResponse(result);
+        if (result.success) {
+          // Broadcast auth state change to all extension pages
+          chrome.runtime.sendMessage({
+            type: 'AUTH_STATE_CHANGED',
+            authenticated: true
+          }).catch(() => {});
+        }
       })
       .catch((error) => {
-        console.error('[Background] Auth success handler failed:', error);
+        console.error('[Background] Auth key login failed:', error);
         sendResponse({ success: false, error: error.message });
       });
 
     return true; // Async response
+  }
+
+  // Legacy AUTH_SUCCESS from webapp — no longer supported.
+  // Extension must authenticate via auth key.
+  if (message.type === 'AUTH_SUCCESS') {
+    sendResponse({ success: false, error: 'AUTH_SUCCESS is deprecated. Use auth key from Settings page.' });
+    return false;
   }
 
   if (message.type === 'LOGOUT') {
@@ -611,19 +618,57 @@ chrome.runtime.onMessageExternal.addListener((message, sender, sendResponse) => 
 });
 
 /**
- * Handle successful authentication
- * Stores token and fetches user data
+ * Handle auth key login.
+ * Sends auth_key to backend, receives Sanctum token, stores it.
+ * @param {string} authKey - 22-char auth key from webapp Settings page
+ * @returns {Promise<object>} { success: boolean, error?: string }
+ */
+async function handleAuthKeyLogin(authKey) {
+  console.log('[Background] Authenticating with auth key...');
+
+  try {
+    const apiUrl = await getApiUrl();
+    const response = await fetch(`${apiUrl}/auth/extension`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json',
+      },
+      body: JSON.stringify({ auth_key: authKey }),
+    });
+
+    const data = await response.json();
+
+    if (!response.ok) {
+      return { success: false, error: data.message || 'Invalid auth key' };
+    }
+
+    // Store token and user data
+    await chrome.storage.local.set({
+      auth_token: data.token,
+      auth_key: authKey,
+      user: data.user,
+      user_email: data.user.email,
+    });
+
+    console.log('[Background] Auth key login successful');
+    return { success: true, user: data.user };
+  } catch (error) {
+    console.error('[Background] Auth key login error:', error);
+    return { success: false, error: error.message };
+  }
+}
+
+/**
+ * Legacy: Handle direct token storage (kept for internal use only).
  * @param {string} token - Sanctum access token
  */
 async function handleAuthSuccess(token) {
   console.log('[Background] Handling auth success...');
 
   try {
-    // Store token in Chrome storage
     await chrome.storage.local.set({ auth_token: token });
-    console.log('[Background] Token stored');
 
-    // Fetch user data from API
     const apiUrl = await getApiUrl();
     const response = await fetch(`${apiUrl}/user`, {
       headers: {
@@ -637,9 +682,7 @@ async function handleAuthSuccess(token) {
     }
 
     const userData = await response.json();
-    console.log('[Background] User data fetched:', userData);
 
-    // Store user data
     await chrome.storage.local.set({
       user: userData.data,
       user_email: userData.data.email

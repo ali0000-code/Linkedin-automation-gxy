@@ -271,6 +271,11 @@ class LinkedInOAuthController extends Controller
         $user = $request->user();
         $newKey = $user->regenerateAuthKey();
 
+        // Revoke all extension tokens so the old auth key's token stops working immediately.
+        // Keep the current request's token (the webapp session) alive.
+        $currentTokenId = $request->user()->currentAccessToken()->id;
+        $user->tokens()->where('name', 'extension')->delete();
+
         return response()->json([
             'auth_key' => $newKey,
             'message' => 'Auth key regenerated. Update your extension with the new key.',

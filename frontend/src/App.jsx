@@ -90,7 +90,7 @@ const PublicRoute = ({ children }) => {
  * Main App Component
  */
 function App() {
-  const { token, setUser, clearAuth, syncWithExtension } = useAuthStore();
+  const { token, setUser, clearAuth } = useAuthStore();
 
   /**
    * Ref guard: stores the last token we verified against the /user endpoint.
@@ -126,33 +126,6 @@ function App() {
 
     verifyAuth();
   }, [token]); // Run whenever token changes
-
-  /**
-   * Extension token sync effect.
-   *
-   * The Chrome extension may load before or after this webapp. We handle both cases:
-   * 1. Try syncing immediately (extension may already be ready)
-   * 2. Listen for the custom 'linkedin-automation-extension-ready' event
-   *    (fired by the extension's webapp-connector.js content script when it injects)
-   *
-   * This ensures the extension always receives the auth token regardless of load order.
-   */
-  useEffect(() => {
-    if (!token) return;
-
-    syncWithExtension();
-
-    const handleExtensionReady = () => {
-      console.log('[App] Extension ready event received, syncing...');
-      syncWithExtension();
-    };
-
-    window.addEventListener('linkedin-automation-extension-ready', handleExtensionReady);
-
-    return () => {
-      window.removeEventListener('linkedin-automation-extension-ready', handleExtensionReady);
-    };
-  }, [token, syncWithExtension]);
 
   return (
     <QueryClientProvider client={queryClient}>
