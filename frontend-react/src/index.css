@@ -1,14 +1,6 @@
-@import "tailwindcss";
-
-/* Custom theme — Tailwind v4 CSS-based config */
-@theme {
-  --color-linkedin: #0077b5;
-  --color-linkedin-dark: #005582;
-  --color-linkedin-light: #00a0dc;
-}
-
-/* Scan Vue files for class names */
-@source "../src/**/*.{vue,js}";
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
 
 /* Global styles */
 * {
@@ -25,7 +17,7 @@ body {
   color: #333;
 }
 
-#app {
+#root {
   min-height: 100vh;
 }
 

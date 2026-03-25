@@ -1,0 +1,186 @@
+/**
+ * @file useCampaigns.js - Vue Query composables for campaign CRUD and lifecycle
+ *
+ * Key patterns:
+ * - useCampaigns: uses keepPreviousData (placeholderData) to prevent table flash during pagination
+ * - useCampaignStats: staleTime of 30s so stats don't refetch on every render
+ * - useCampaignActions: staleTime=Infinity because action types are static configuration
+ * - useStartCampaign: after backend confirms, fires a fire-and-forget message to the Chrome
+ *   extension (startCampaignQueue) so it begins processing actions immediately, without
+ *   blocking the UI if the extension is unreachable
+ */
+
+import { useQuery, useMutation, useQueryClient, keepPreviousData } from '@tanstack/vue-query';
+import campaignService from '../services/campaign.service';
+import { startCampaignQueue } from '../services/extension.service';
+
+/**
+ * Fetch paginated campaigns with filters.
+ *
+ * placeholderData: keepPreviousData retains the old page's data in the UI while
+ * the new page is being fetched, avoiding an empty-table flash during pagination.
+ *
+ * @param {object} filters - Query filters (status, search, per_page, page)
+ */
+export const useCampaigns = (filters = {}) => {
+  return useQuery({
+    queryKey: ['campaigns', filters],
+    queryFn: () => campaignService.getCampaigns(filters),
+    placeholderData: keepPreviousData,
+    staleTime: 30000,
+  });
+};
+
+/**
+ * Fetch single campaign by ID
+ * @param {number} id - Campaign ID
+ */
+export const useCampaign = (id) => {
+  return useQuery({
+    queryKey: ['campaign', id],
+    queryFn: () => campaignService.getCampaign(id),
+    enabled: !!id,
+  });
+};
+
+/**
+ * Fetch campaign statistics
+ */
+export const useCampaignStats = () => {
+  return useQuery({
+    queryKey: ['campaign-stats'],
+    queryFn: () => campaignService.getStats(),
+    staleTime: 30000,
+  });
+};
+
+/**
+ * Fetch available campaign action types
+ */
+export const useCampaignActions = () => {
+  return useQuery({
+    queryKey: ['campaign-actions'],
+    queryFn: () => campaignService.getCampaignActions(),
+    staleTime: Infinity,
+  });
+};
+
+/**
+ * Create new campaign mutation
+ */
+export const useCreateCampaign = () => {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (data) => campaignService.createCampaign(data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['campaigns'] });
+      queryClient.invalidateQueries({ queryKey: ['campaign-stats'] });
+    },
+  });
+};
+
+/**
+ * Update campaign mutation
+ */
+export const useUpdateCampaign = () => {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({ id, data }) => campaignService.updateCampaign(id, data),
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({ queryKey: ['campaign', variables.id] });
+      queryClient.invalidateQueries({ queryKey: ['campaigns'] });
+    },
+  });
+};
+
+/**
+ * Delete campaign mutation
+ */
+export const useDeleteCampaign = () => {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (id) => campaignService.deleteCampaign(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['campaigns'] });
+      queryClient.invalidateQueries({ queryKey: ['campaign-stats'] });
+    },
+  });
+};
+
+/**
+ * Add prospects to campaign mutation
+ */
+export const useAddProspects = () => {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({ id, prospectIds }) => campaignService.addProspects(id, prospectIds),
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({ queryKey: ['campaign', variables.id] });
+      queryClient.invalidateQueries({ queryKey: ['campaigns'] });
+    },
+  });
+};
+
+/**
+ * Remove prospects from campaign mutation
+ */
+export const useRemoveProspects = () => {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({ id, prospectIds }) => campaignService.removeProspects(id, prospectIds),
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({ queryKey: ['campaign', variables.id] });
+      queryClient.invalidateQueries({ queryKey: ['campaigns'] });
+    },
+  });
+};
+
+/**
+ * Start campaign mutation
+ * Automatically triggers the extension to start processing actions
+ */
+export const useStartCampaign = () => {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (id) => campaignService.startCampaign(id),
+    onSuccess: (response, id) => {
+      // Invalidate queries to refresh UI
+      queryClient.invalidateQueries({ queryKey: ['campaign', id] });
+      queryClient.invalidateQueries({ queryKey: ['campaigns'] });
+      queryClient.invalidateQueries({ queryKey: ['campaign-stats'] });
+
+      // Trigger extension to start processing (fire-and-forget, don't block)
+      console.log('[useCampaigns] Campaign started, triggering extension...');
+      startCampaignQueue()
+        .then((result) => {
+          console.log('[useCampaigns] Extension response:', result);
+        })
+        .catch((error) => {
+          // Don't fail if extension communication fails
+          console.warn('[useCampaigns] Could not auto-start extension queue:', error.message);
+        });
+    },
+  });
+};
+
+/**
+ * Pause campaign mutation
+ */
+export const usePauseCampaign = () => {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (id) => campaignService.pauseCampaign(id),
+    onSuccess: (_, id) => {
+      queryClient.invalidateQueries({ queryKey: ['campaign', id] });
+      queryClient.invalidateQueries({ queryKey: ['campaigns'] });
+      queryClient.invalidateQueries({ queryKey: ['campaign-stats'] });
+    },
+  });
+};

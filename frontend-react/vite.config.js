@@ -1,9 +1,8 @@
 import { defineConfig } from 'vite'
-import vue from '@vitejs/plugin-vue'
-import tailwindcss from '@tailwindcss/vite'
+import react from '@vitejs/plugin-react'
 
 export default defineConfig({
-  plugins: [vue(), tailwindcss()],
+  plugins: [react()],
   server: {
     port: 3000,
     proxy: {
@@ -16,5 +15,14 @@ export default defineConfig({
   build: {
     target: 'es2020',
     sourcemap: false,
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          'react-vendor': ['react', 'react-dom', 'react-router-dom'],
+          'query': ['@tanstack/react-query'],
+          'state': ['zustand'],
+        }
+      }
+    }
   }
 })
