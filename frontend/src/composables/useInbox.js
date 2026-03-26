@@ -1,3 +1,4 @@
+import { unref } from 'vue';
 /**
  * @file useInbox.js - Vue Query composables for LinkedIn messaging inbox
  *
@@ -22,7 +23,7 @@ import inboxService from '../services/inbox.service';
 export const useConversations = (params = {}) => {
   return useQuery({
     queryKey: ['conversations', params],
-    queryFn: () => inboxService.getConversations(params),
+    queryFn: () => inboxService.getConversations(unref(params)),
     staleTime: 30000,
   });
 };
@@ -33,7 +34,7 @@ export const useConversations = (params = {}) => {
 export const useConversation = (id) => {
   return useQuery({
     queryKey: ['conversation', id],
-    queryFn: () => inboxService.getConversation(id),
+    queryFn: () => inboxService.getConversation(unref(id)),
     enabled: !!id,
     staleTime: 10000,
   });

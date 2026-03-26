@@ -1,35 +1,35 @@
 <template>
-  <div v-if="prospects.length === 0" class="bg-white rounded-lg shadow p-12 text-center">
-    <p class="text-gray-500">No prospects found</p>
+  <div v-if="prospects.length === 0" class="bg-theme-raised rounded-lg shadow p-12 text-center">
+    <p class="text-theme-muted">No prospects found</p>
   </div>
 
-  <div v-else class="bg-white rounded-lg shadow overflow-hidden">
+  <div v-else class="bg-theme-raised rounded-lg shadow overflow-hidden">
     <div class="overflow-x-auto">
       <table class="min-w-full divide-y divide-gray-200">
-        <thead class="bg-gray-50">
+        <thead class="bg-theme-overlay">
           <tr>
             <th class="px-3 py-3 text-left">
               <!-- Checkbox column -->
             </th>
-            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+            <th class="px-6 py-3 text-left text-xs font-medium text-theme-muted uppercase tracking-wider">
               Prospect
             </th>
-            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+            <th class="px-6 py-3 text-left text-xs font-medium text-theme-muted uppercase tracking-wider">
               Email
             </th>
-            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+            <th class="px-6 py-3 text-left text-xs font-medium text-theme-muted uppercase tracking-wider">
               Tags
             </th>
-            <th class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+            <th class="px-6 py-3 text-right text-xs font-medium text-theme-muted uppercase tracking-wider">
               Actions
             </th>
           </tr>
         </thead>
-        <tbody class="bg-white divide-y divide-gray-200">
+        <tbody class="bg-theme-raised divide-y divide-gray-200">
           <tr
             v-for="prospect in prospects"
             :key="prospect.id"
-            class="hover:bg-gray-50 transition-colors"
+            class="hover:bg-theme-overlay transition-colors"
           >
             <!-- Checkbox -->
             <td class="px-3 py-4 whitespace-nowrap">
@@ -37,7 +37,7 @@
                 type="checkbox"
                 :checked="selectedProspects.includes(prospect.id)"
                 @change="onToggleProspect(prospect.id)"
-                class="w-4 h-4 text-linkedin border-gray-300 rounded focus:ring-linkedin"
+                class="w-4 h-4 text-linkedin border-theme rounded focus:ring-linkedin"
               />
             </td>
 
@@ -64,7 +64,7 @@
 
                 <!-- Name and Headline -->
                 <div class="ml-4">
-                  <div class="text-sm font-medium text-gray-900">
+                  <div class="text-sm font-medium text-theme-primary">
                     <a
                       :href="prospect.profile_url"
                       target="_blank"
@@ -76,7 +76,7 @@
                   </div>
                   <div
                     v-if="prospect.headline"
-                    class="text-sm text-gray-500 truncate max-w-xs"
+                    class="text-sm text-theme-muted truncate max-w-xs"
                   >
                     {{ prospect.headline }}
                   </div>
@@ -93,7 +93,7 @@
               >
                 {{ prospect.email }}
               </a>
-              <span v-else class="text-sm text-gray-400">-</span>
+              <span v-else class="text-sm text-theme-muted">-</span>
             </td>
 
             <!-- Tags -->
@@ -109,7 +109,7 @@
                     :onRemove="() => handleRemoveTag(prospect.id, tag.id)"
                   />
                 </template>
-                <span v-else class="text-sm text-gray-400">No tags</span>
+                <span v-else class="text-sm text-theme-muted">No tags</span>
               </div>
             </td>
 

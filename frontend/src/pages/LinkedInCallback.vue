@@ -77,8 +77,8 @@ onMounted(async () => {
 
 <template>
   <!-- Error state -->
-  <div v-if="error" class="min-h-screen flex items-center justify-center bg-gray-50">
-    <div class="max-w-md w-full bg-white shadow-lg rounded-lg p-8">
+  <div v-if="error" class="min-h-screen flex items-center justify-center bg-theme-overlay">
+    <div class="max-w-md w-full bg-theme-raised shadow-lg rounded-lg p-8">
       <div class="text-center">
         <div class="mx-auto flex items-center justify-center h-12 w-12 rounded-full bg-red-100 mb-4">
           <svg
@@ -95,10 +95,10 @@ onMounted(async () => {
             />
           </svg>
         </div>
-        <h3 class="text-lg font-medium text-gray-900 mb-2">
+        <h3 class="text-lg font-medium text-theme-primary mb-2">
           Authentication Failed
         </h3>
-        <p class="text-sm text-gray-500 mb-6">{{ error }}</p>
+        <p class="text-sm text-theme-muted mb-6">{{ error }}</p>
         <button
           @click="router.push('/login')"
           class="w-full inline-flex justify-center items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
@@ -110,11 +110,11 @@ onMounted(async () => {
   </div>
 
   <!-- Loading state -->
-  <div v-else class="min-h-screen flex items-center justify-center bg-gray-50">
+  <div v-else class="min-h-screen flex items-center justify-center bg-theme-overlay">
     <div class="text-center">
       <Spinner size="lg" />
-      <p class="mt-4 text-gray-600">Completing authentication...</p>
-      <p class="mt-2 text-sm text-gray-500">Please wait while we set up your account</p>
+      <p class="mt-4 text-theme-secondary">Completing authentication...</p>
+      <p class="mt-2 text-sm text-theme-muted">Please wait while we set up your account</p>
     </div>
   </div>
 </template>

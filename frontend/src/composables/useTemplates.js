@@ -7,6 +7,7 @@
  */
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/vue-query';
+import { unref } from 'vue';
 import { templateService } from '../services/template.service';
 
 /**
@@ -16,7 +17,7 @@ import { templateService } from '../services/template.service';
 export const useTemplates = (type = null) => {
   return useQuery({
     queryKey: ['templates', type],
-    queryFn: () => templateService.getTemplates(type),
+    queryFn: () => templateService.getTemplates(unref(type)),
   });
 };
 

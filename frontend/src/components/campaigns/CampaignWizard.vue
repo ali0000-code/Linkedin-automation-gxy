@@ -10,12 +10,12 @@
                 'w-10 h-10 rounded-full flex items-center justify-center font-semibold',
                 currentStep >= step.number
                   ? 'bg-linkedin text-white'
-                  : 'bg-gray-200 text-gray-600'
+                  : 'bg-gray-200 text-theme-secondary'
               ]"
             >
               {{ step.number }}
             </div>
-            <div class="mt-2 text-sm font-medium text-gray-700">{{ step.name }}</div>
+            <div class="mt-2 text-sm font-medium text-theme-secondary">{{ step.name }}</div>
           </div>
           <div
             v-if="index < steps.length - 1"
@@ -30,7 +30,7 @@
     </div>
 
     <!-- Step Content -->
-    <div class="bg-white rounded-lg shadow p-8 mb-6">
+    <div class="bg-theme-raised rounded-lg shadow p-8 mb-6">
       <!-- Step 1: Campaign Name -->
       <StepName
         v-if="currentStep === 1"
@@ -75,7 +75,7 @@
         </Button>
       </div>
       <div class="flex space-x-3">
-        <Button variant="secondary" @click="router.push('/campaign/list')">
+        <Button variant="secondary" @click="router.push('/campaigns')">
           Cancel
         </Button>
         <template v-if="currentStep < 4">
@@ -246,7 +246,7 @@ const handleSave = async (shouldStart = false) => {
         console.log('[CampaignWizard] Email campaign started')
       }
       isSavingRef.value = false
-      router.push('/campaign/list')
+      router.push('/campaigns')
       return
     }
 
@@ -288,11 +288,11 @@ const handleSave = async (shouldStart = false) => {
     }
 
     isSavingRef.value = false
-    router.push('/campaign/list')
+    router.push('/campaigns')
   } catch (error) {
     console.error('[CampaignWizard] Error:', error)
     isSavingRef.value = false
-    router.push('/campaign/list')
+    router.push('/campaigns')
   }
 }
 

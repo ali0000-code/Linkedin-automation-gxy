@@ -1,15 +1,15 @@
 <template>
   <div class="w-full">
-    <label v-if="label" class="block text-sm font-medium text-gray-700 mb-1">
+    <label v-if="label" class="block text-sm font-medium text-theme-secondary mb-1">
       {{ label }}
     </label>
     <input
       :type="type"
       :class="[
-        'w-full px-3 py-2 border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-linkedin transition-colors',
+        'w-full px-3 py-2 border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-linkedin transition-colors bg-theme-raised text-theme-primary placeholder:text-theme-muted',
         error
           ? 'border-red-500 focus:ring-red-500'
-          : 'border-gray-300 focus:border-linkedin',
+          : 'border-theme focus:border-linkedin',
         $attrs.class
       ]"
       v-bind="filteredAttrs"

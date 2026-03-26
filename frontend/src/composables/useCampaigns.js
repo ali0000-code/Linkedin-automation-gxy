@@ -1,3 +1,4 @@
+import { unref } from 'vue';
 /**
  * @file useCampaigns.js - Vue Query composables for campaign CRUD and lifecycle
  *
@@ -25,7 +26,7 @@ import { startCampaignQueue } from '../services/extension.service';
 export const useCampaigns = (filters = {}) => {
   return useQuery({
     queryKey: ['campaigns', filters],
-    queryFn: () => campaignService.getCampaigns(filters),
+    queryFn: () => campaignService.getCampaigns(unref(filters)),
     placeholderData: keepPreviousData,
     staleTime: 30000,
   });
@@ -38,7 +39,7 @@ export const useCampaigns = (filters = {}) => {
 export const useCampaign = (id) => {
   return useQuery({
     queryKey: ['campaign', id],
-    queryFn: () => campaignService.getCampaign(id),
+    queryFn: () => campaignService.getCampaign(unref(id)),
     enabled: !!id,
   });
 };

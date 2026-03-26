@@ -1,3 +1,4 @@
+import { unref } from 'vue';
 /**
  * @file useProspects.js - Vue Query composables for prospect CRUD and tagging
  *
@@ -23,7 +24,7 @@ import { prospectService } from '../services/prospect.service';
 export const useProspects = (filters = {}, options = {}) => {
   return useQuery({
     queryKey: ['prospects', filters],
-    queryFn: () => prospectService.getProspects(filters),
+    queryFn: () => prospectService.getProspects(unref(filters)),
     placeholderData: keepPreviousData,
     staleTime: 30000,
     ...options,
@@ -37,7 +38,7 @@ export const useProspects = (filters = {}, options = {}) => {
 export const useProspect = (id) => {
   return useQuery({
     queryKey: ['prospect', id],
-    queryFn: () => prospectService.getProspect(id),
+    queryFn: () => prospectService.getProspect(unref(id)),
     enabled: !!id,
   });
 };

@@ -278,11 +278,11 @@ const filteredTagName = computed(() => {
     <div class="flex gap-6 h-full">
       <!-- LEFT SIDEBAR - TAGS -->
       <div class="w-80 flex-shrink-0">
-        <div class="bg-white rounded-lg shadow h-full flex flex-col">
+        <div class="bg-theme-raised rounded-lg shadow h-full flex flex-col">
           <!-- Tags Header -->
-          <div class="p-4 border-b border-gray-200">
+          <div class="p-4 border-b border-theme">
             <div class="flex items-center justify-between mb-3">
-              <h2 class="text-lg font-semibold text-gray-900">Tags</h2>
+              <h2 class="text-lg font-semibold text-theme-primary">Tags</h2>
               <Button variant="primary" size="sm" @click="handleCreateTag">
                 + New
               </Button>
@@ -303,19 +303,19 @@ const filteredTagName = computed(() => {
             <div v-if="tagsLoading" class="flex justify-center py-8">
               <Spinner />
             </div>
-            <div v-else-if="tags.length === 0" class="p-4 text-center text-gray-500 text-sm">
+            <div v-else-if="tags.length === 0" class="p-4 text-center text-theme-muted text-sm">
               No tags yet. Create one!
             </div>
             <div v-else class="p-2">
               <!-- Select All -->
-              <label class="flex items-center px-3 py-2 hover:bg-gray-50 rounded cursor-pointer">
+              <label class="flex items-center px-3 py-2 hover:bg-theme-overlay rounded cursor-pointer">
                 <input
                   type="checkbox"
                   :checked="selectedTags.length === tags.length && tags.length > 0"
-                  class="w-4 h-4 text-linkedin border-gray-300 rounded focus:ring-linkedin"
+                  class="w-4 h-4 text-linkedin border-theme rounded focus:ring-linkedin"
                   @change="handleSelectAllTags"
                 />
-                <span class="ml-2 text-sm font-medium text-gray-700">Select All</span>
+                <span class="ml-2 text-sm font-medium text-theme-secondary">Select All</span>
               </label>
 
               <!-- Tag Items -->
@@ -323,7 +323,7 @@ const filteredTagName = computed(() => {
                 v-for="tag in tags"
                 :key="tag.id"
                 :class="[
-                  'flex items-center justify-between px-3 py-2 rounded hover:bg-gray-50 cursor-pointer',
+                  'flex items-center justify-between px-3 py-2 rounded hover:bg-theme-overlay cursor-pointer',
                   filters.tag_id === tag.id ? 'bg-blue-50' : ''
                 ]"
                 @click="handleFilterByTag(tag.id)"
@@ -332,7 +332,7 @@ const filteredTagName = computed(() => {
                   <input
                     type="checkbox"
                     :checked="selectedTags.includes(tag.id)"
-                    class="w-4 h-4 text-linkedin border-gray-300 rounded focus:ring-linkedin"
+                    class="w-4 h-4 text-linkedin border-theme rounded focus:ring-linkedin"
                     @change="handleToggleTag(tag.id)"
                     @click.stop
                   />
@@ -341,13 +341,13 @@ const filteredTagName = computed(() => {
                     :style="{ backgroundColor: tag.color }"
                   />
                   <div class="flex-1">
-                    <p class="text-sm font-medium text-gray-900">{{ tag.name }}</p>
-                    <p class="text-xs text-gray-500">{{ tag.prospects_count || 0 }} prospects</p>
+                    <p class="text-sm font-medium text-theme-primary">{{ tag.name }}</p>
+                    <p class="text-xs text-theme-muted">{{ tag.prospects_count || 0 }} prospects</p>
                   </div>
                 </div>
                 <div class="flex items-center space-x-1">
                   <button
-                    class="p-1 text-gray-400 hover:text-gray-600"
+                    class="p-1 text-theme-muted hover:text-theme-secondary"
                     @click="handleEditTag(tag, $event)"
                   >
                     <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -355,7 +355,7 @@ const filteredTagName = computed(() => {
                     </svg>
                   </button>
                   <button
-                    class="p-1 text-gray-400 hover:text-red-600"
+                    class="p-1 text-theme-muted hover:text-red-600"
                     @click="handleDeleteTag(tag, $event)"
                   >
                     <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -376,8 +376,8 @@ const filteredTagName = computed(() => {
           <!-- Header -->
           <div class="flex justify-between items-center">
             <div>
-              <h1 class="text-2xl font-bold text-gray-900">Prospects</h1>
-              <p class="text-sm text-gray-600 mt-1">
+              <h1 class="text-2xl font-bold text-theme-primary">Prospects</h1>
+              <p class="text-sm text-theme-secondary mt-1">
                 {{ meta.total || 0 }} total prospects
                 <template v-if="filteredTagName">
                   &bull; Filtered by "{{ filteredTagName }}"
@@ -403,15 +403,15 @@ const filteredTagName = computed(() => {
                   <div class="fixed inset-0 z-10" @click="isAddProspectsOpen = false" />
 
                   <!-- Dropdown -->
-                  <div class="absolute right-0 mt-2 w-80 bg-white rounded-lg shadow-lg border border-gray-200 z-20">
+                  <div class="absolute right-0 mt-2 w-80 bg-theme-raised rounded-lg shadow-lg border border-theme z-20">
                     <div class="p-4">
-                      <h3 class="text-sm font-semibold text-gray-900 mb-3">Add Prospects from LinkedIn</h3>
+                      <h3 class="text-sm font-semibold text-theme-primary mb-3">Add Prospects from LinkedIn</h3>
 
                       <a
                         href="https://www.linkedin.com/search/results/people/?keywords=%27%27&origin=SWITCH_SEARCH_VERTICAL"
                         target="_blank"
                         rel="noopener noreferrer"
-                        class="flex items-center p-3 rounded-lg border border-gray-200 hover:bg-blue-50 hover:border-linkedin transition-colors mb-2"
+                        class="flex items-center p-3 rounded-lg border border-theme hover:bg-blue-50 hover:border-linkedin transition-colors mb-2"
                         @click="isAddProspectsOpen = false"
                       >
                         <div class="flex-shrink-0 w-10 h-10 bg-blue-100 rounded-lg flex items-center justify-center">
@@ -420,8 +420,8 @@ const filteredTagName = computed(() => {
                           </svg>
                         </div>
                         <div class="ml-3">
-                          <p class="text-sm font-medium text-gray-900">From Search</p>
-                          <p class="text-xs text-gray-500">Search for people on LinkedIn</p>
+                          <p class="text-sm font-medium text-theme-primary">From Search</p>
+                          <p class="text-xs text-theme-muted">Search for people on LinkedIn</p>
                         </div>
                       </a>
 
@@ -429,7 +429,7 @@ const filteredTagName = computed(() => {
                         href="https://www.linkedin.com/mynetwork/invite-connect/connections/"
                         target="_blank"
                         rel="noopener noreferrer"
-                        class="flex items-center p-3 rounded-lg border border-gray-200 hover:bg-blue-50 hover:border-linkedin transition-colors"
+                        class="flex items-center p-3 rounded-lg border border-theme hover:bg-blue-50 hover:border-linkedin transition-colors"
                         @click="isAddProspectsOpen = false"
                       >
                         <div class="flex-shrink-0 w-10 h-10 bg-green-100 rounded-lg flex items-center justify-center">
@@ -438,8 +438,8 @@ const filteredTagName = computed(() => {
                           </svg>
                         </div>
                         <div class="ml-3">
-                          <p class="text-sm font-medium text-gray-900">From Network</p>
-                          <p class="text-xs text-gray-500">Import your existing connections</p>
+                          <p class="text-sm font-medium text-theme-primary">From Network</p>
+                          <p class="text-xs text-theme-muted">Import your existing connections</p>
                         </div>
                       </a>
 
@@ -480,7 +480,7 @@ const filteredTagName = computed(() => {
           </div>
 
           <!-- Filters -->
-          <div class="bg-white rounded-lg shadow p-4">
+          <div class="bg-theme-raised rounded-lg shadow p-4">
             <div class="grid grid-cols-3 gap-4">
               <Input
                 placeholder="Search prospects..."
@@ -489,7 +489,7 @@ const filteredTagName = computed(() => {
               />
               <select
                 :value="filters.connection_status"
-                class="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-linkedin focus:border-linkedin"
+                class="px-3 py-2 border border-theme rounded-lg text-sm focus:ring-linkedin focus:border-linkedin"
                 @change="handleFilterChange('connection_status', $event.target.value)"
               >
                 <option value="">All Statuses</option>
@@ -516,15 +516,15 @@ const filteredTagName = computed(() => {
           </div>
 
           <!-- Select All Loaded -->
-          <div v-if="accumulatedProspects.length > 0" class="bg-white rounded-lg shadow p-4">
+          <div v-if="accumulatedProspects.length > 0" class="bg-theme-raised rounded-lg shadow p-4">
             <label class="flex items-center">
               <input
                 type="checkbox"
                 :checked="allLoadedSelected"
-                class="w-4 h-4 text-linkedin border-gray-300 rounded focus:ring-linkedin"
+                class="w-4 h-4 text-linkedin border-theme rounded focus:ring-linkedin"
                 @change="handleSelectAllLoaded"
               />
-              <span class="ml-3 text-sm font-medium text-gray-700">
+              <span class="ml-3 text-sm font-medium text-theme-secondary">
                 Select All Loaded ({{ accumulatedProspects.length }})
               </span>
             </label>
@@ -557,7 +557,7 @@ const filteredTagName = computed(() => {
               </Button>
             </div>
 
-            <div v-if="!hasMore && accumulatedProspects.length > 0" class="text-center py-6 text-gray-500 text-sm">
+            <div v-if="!hasMore && accumulatedProspects.length > 0" class="text-center py-6 text-theme-muted text-sm">
               You've reached the end of the list
             </div>
           </div>
@@ -581,17 +581,17 @@ const filteredTagName = computed(() => {
       @close="isBulkTagModalOpen = false"
     >
       <div class="space-y-4">
-        <p class="text-sm text-gray-600">Select tags to assign:</p>
+        <p class="text-sm text-theme-secondary">Select tags to assign:</p>
         <div class="max-h-96 overflow-y-auto space-y-2">
           <label
             v-for="tag in tags"
             :key="tag.id"
-            class="flex items-center p-3 border rounded-lg hover:bg-gray-50 cursor-pointer"
+            class="flex items-center p-3 border rounded-lg hover:bg-theme-overlay cursor-pointer"
           >
             <input
               type="checkbox"
               :checked="selectedTagIds.includes(tag.id)"
-              class="w-4 h-4 text-linkedin border-gray-300 rounded focus:ring-linkedin"
+              class="w-4 h-4 text-linkedin border-theme rounded focus:ring-linkedin"
               @change="handleToggleTagForAssignment(tag.id)"
             />
             <div class="w-4 h-4 rounded-full ml-3" :style="{ backgroundColor: tag.color }" />
@@ -626,7 +626,7 @@ const filteredTagName = computed(() => {
           @update:model-value="tagFormData.name = $event"
         />
         <div>
-          <label class="block text-sm font-medium text-gray-700 mb-2">Color</label>
+          <label class="block text-sm font-medium text-theme-secondary mb-2">Color</label>
           <div class="grid grid-cols-8 gap-2">
             <button
               v-for="color in TAG_COLORS"

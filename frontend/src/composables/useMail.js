@@ -1,3 +1,4 @@
+import { unref } from 'vue';
 /**
  * @file useMail.js - Vue Query composables for email management
  *
@@ -26,7 +27,7 @@ import { mailService } from '../services/mail.service';
 export const useMails = (params = {}) => {
   return useQuery({
     queryKey: ['mails', params],
-    queryFn: () => mailService.getEmails(params),
+    queryFn: () => mailService.getEmails(unref(params)),
     placeholderData: keepPreviousData,
     staleTime: 30000,
   });
@@ -49,7 +50,7 @@ export const useMailStats = () => {
 export const useMail = (id) => {
   return useQuery({
     queryKey: ['mail', id],
-    queryFn: () => mailService.getEmail(id),
+    queryFn: () => mailService.getEmail(unref(id)),
     enabled: !!id,
   });
 };

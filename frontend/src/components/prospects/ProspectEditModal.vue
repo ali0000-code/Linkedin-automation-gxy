@@ -8,24 +8,24 @@
 
       <!-- Full Name - Read Only -->
       <div>
-        <label class="block text-sm font-medium text-gray-700 mb-1">
+        <label class="block text-sm font-medium text-theme-secondary mb-1">
           Full Name
         </label>
         <input
           type="text"
           :value="prospect?.full_name || ''"
           disabled
-          class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm bg-gray-100 text-gray-600 cursor-not-allowed"
+          class="w-full px-3 py-2 border border-theme rounded-lg text-sm bg-theme-overlay text-theme-secondary cursor-not-allowed"
         />
       </div>
 
       <!-- Connection Status -->
       <div>
-        <label class="block text-sm font-medium text-gray-700 mb-1">
+        <label class="block text-sm font-medium text-theme-secondary mb-1">
           Connection Status
         </label>
         <select
-          class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-linkedin"
+          class="w-full px-3 py-2 border border-theme rounded-lg focus:outline-none focus:ring-2 focus:ring-linkedin"
           :value="formData.connection_status"
           @change="handleChange('connection_status', $event.target.value)"
         >
@@ -41,7 +41,7 @@
 
       <!-- Tags Selection -->
       <div>
-        <label class="block text-sm font-medium text-gray-700 mb-2">
+        <label class="block text-sm font-medium text-theme-secondary mb-2">
           Tags
         </label>
         <div class="flex flex-wrap gap-2">
@@ -54,14 +54,14 @@
               'px-3 py-1 rounded-full text-sm font-medium transition-all',
               selectedTagIds.includes(tag.id)
                 ? 'bg-linkedin text-white'
-                : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                : 'bg-theme-overlay text-theme-secondary hover:bg-gray-200'
             ]"
             :style="selectedTagIds.includes(tag.id) ? {} : { borderColor: tag.color }"
           >
             {{ tag.name }}
           </button>
         </div>
-        <p v-if="availableTags.length === 0" class="text-sm text-gray-500">
+        <p v-if="availableTags.length === 0" class="text-sm text-theme-muted">
           No tags available. Create tags first.
         </p>
       </div>

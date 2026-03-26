@@ -356,7 +356,7 @@ const getStatusConfig = (st) => {
     sent: { bg: 'bg-green-100', text: 'text-green-800' },
     failed: { bg: 'bg-red-100', text: 'text-red-800' },
     pending: { bg: 'bg-yellow-100', text: 'text-yellow-800' },
-    draft: { bg: 'bg-gray-100', text: 'text-gray-800' },
+    draft: { bg: 'bg-theme-overlay', text: 'text-theme-primary' },
   }
   return config[st] || config.pending
 }
@@ -368,8 +368,8 @@ const getStatusConfig = (st) => {
       <!-- Page Header -->
       <div class="flex items-center justify-between">
         <div>
-          <h1 class="text-2xl font-bold text-gray-900">Mail</h1>
-          <p class="text-gray-600 mt-1">View and track your sent emails.</p>
+          <h1 class="text-2xl font-bold text-theme-primary">Mail</h1>
+          <p class="text-theme-secondary mt-1">View and track your sent emails.</p>
         </div>
         <div class="flex items-center space-x-3">
           <Button class="flex items-center space-x-2" @click="showCreateModal = true">
@@ -398,7 +398,7 @@ const getStatusConfig = (st) => {
           <Spinner size="lg" />
         </div>
         <template v-else>
-          <div class="bg-white rounded-lg shadow-sm border border-gray-200 p-4">
+          <div class="bg-theme-raised rounded-lg shadow-sm border border-theme p-4">
             <div class="flex items-center space-x-3">
               <div class="w-10 h-10 rounded-lg flex items-center justify-center bg-blue-100 text-blue-600">
                 <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -406,12 +406,12 @@ const getStatusConfig = (st) => {
                 </svg>
               </div>
               <div>
-                <p class="text-2xl font-bold text-gray-900">{{ stats.sent || 0 }}</p>
-                <p class="text-sm text-gray-500">Total Sent</p>
+                <p class="text-2xl font-bold text-theme-primary">{{ stats.sent || 0 }}</p>
+                <p class="text-sm text-theme-muted">Total Sent</p>
               </div>
             </div>
           </div>
-          <div class="bg-white rounded-lg shadow-sm border border-gray-200 p-4">
+          <div class="bg-theme-raised rounded-lg shadow-sm border border-theme p-4">
             <div class="flex items-center space-x-3">
               <div class="w-10 h-10 rounded-lg flex items-center justify-center bg-green-100 text-green-600">
                 <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -419,12 +419,12 @@ const getStatusConfig = (st) => {
                 </svg>
               </div>
               <div>
-                <p class="text-2xl font-bold text-gray-900">{{ stats.today_sent || 0 }}</p>
-                <p class="text-sm text-gray-500">Sent Today</p>
+                <p class="text-2xl font-bold text-theme-primary">{{ stats.today_sent || 0 }}</p>
+                <p class="text-sm text-theme-muted">Sent Today</p>
               </div>
             </div>
           </div>
-          <div class="bg-white rounded-lg shadow-sm border border-gray-200 p-4">
+          <div class="bg-theme-raised rounded-lg shadow-sm border border-theme p-4">
             <div class="flex items-center space-x-3">
               <div class="w-10 h-10 rounded-lg flex items-center justify-center bg-red-100 text-red-600">
                 <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -432,12 +432,12 @@ const getStatusConfig = (st) => {
                 </svg>
               </div>
               <div>
-                <p class="text-2xl font-bold text-gray-900">{{ stats.failed || 0 }}</p>
-                <p class="text-sm text-gray-500">Failed</p>
+                <p class="text-2xl font-bold text-theme-primary">{{ stats.failed || 0 }}</p>
+                <p class="text-sm text-theme-muted">Failed</p>
               </div>
             </div>
           </div>
-          <div class="bg-white rounded-lg shadow-sm border border-gray-200 p-4">
+          <div class="bg-theme-raised rounded-lg shadow-sm border border-theme p-4">
             <div class="flex items-center space-x-3">
               <div class="w-10 h-10 rounded-lg flex items-center justify-center bg-yellow-100 text-yellow-600">
                 <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -445,8 +445,8 @@ const getStatusConfig = (st) => {
                 </svg>
               </div>
               <div>
-                <p class="text-2xl font-bold text-gray-900">{{ stats.pending || 0 }}</p>
-                <p class="text-sm text-gray-500">Pending</p>
+                <p class="text-2xl font-bold text-theme-primary">{{ stats.pending || 0 }}</p>
+                <p class="text-sm text-theme-muted">Pending</p>
               </div>
             </div>
           </div>
@@ -454,7 +454,7 @@ const getStatusConfig = (st) => {
       </div>
 
       <!-- Filters -->
-      <div class="bg-white rounded-lg shadow-sm border border-gray-200 p-4">
+      <div class="bg-theme-raised rounded-lg shadow-sm border border-theme p-4">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between space-y-4 md:space-y-0">
           <div class="flex space-x-2">
             <Button :variant="status === '' ? 'primary' : 'secondary'" size="sm" @click="handleStatusFilter('')">All</Button>
@@ -468,10 +468,10 @@ const getStatusConfig = (st) => {
                 v-model="searchInput"
                 type="text"
                 placeholder="Search by email or subject..."
-                class="pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-linkedin focus:border-transparent w-64"
+                class="pl-10 pr-4 py-2 border border-theme rounded-lg focus:ring-2 focus:ring-linkedin focus:border-transparent w-64"
               />
               <div class="absolute left-3 top-2.5">
-                <svg class="w-5 h-5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <svg class="w-5 h-5 text-theme-muted" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
                 </svg>
               </div>
@@ -498,7 +498,7 @@ const getStatusConfig = (st) => {
             v-if="sendableSelectedIds.length > 0"
             variant="secondary"
             size="sm"
-            class="bg-white text-linkedin hover:bg-gray-100"
+            class="bg-theme-raised text-linkedin hover:bg-theme-overlay"
             :disabled="sendBulkMutation.isPending.value"
             @click="handleBulkSend"
           >
@@ -528,7 +528,7 @@ const getStatusConfig = (st) => {
           <Button
             variant="secondary"
             size="sm"
-            class="bg-transparent text-white hover:bg-white/10 border-white"
+            class="bg-transparent text-white hover:bg-theme-raised/10 border-white"
             @click="selectedIds = []"
           >
             Cancel
@@ -537,15 +537,15 @@ const getStatusConfig = (st) => {
       </div>
 
       <!-- Email List -->
-      <div class="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
+      <div class="bg-theme-raised rounded-lg shadow-sm border border-theme overflow-hidden">
         <div v-if="isLoading" class="flex justify-center py-12">
           <Spinner size="lg" />
         </div>
         <div v-else-if="error" class="text-center py-12 text-red-600">
           Failed to load emails. Please try again.
         </div>
-        <div v-else-if="!mailsData?.data?.length" class="text-center py-12 text-gray-500">
-          <div class="w-12 h-12 mx-auto text-gray-300 mb-3">
+        <div v-else-if="!mailsData?.data?.length" class="text-center py-12 text-theme-muted">
+          <div class="w-12 h-12 mx-auto text-theme-muted mb-3">
             <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
             </svg>
@@ -554,47 +554,47 @@ const getStatusConfig = (st) => {
         </div>
         <template v-else>
           <table class="min-w-full divide-y divide-gray-200">
-            <thead class="bg-gray-50">
+            <thead class="bg-theme-overlay">
               <tr>
                 <th class="px-4 py-3 w-10">
                   <input
                     type="checkbox"
                     :checked="isAllSelected"
-                    class="w-4 h-4 text-linkedin border-gray-300 rounded focus:ring-linkedin"
+                    class="w-4 h-4 text-linkedin border-theme rounded focus:ring-linkedin"
                     @change="handleSelectAll"
                   />
                 </th>
-                <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Recipient</th>
-                <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Subject</th>
-                <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
-                <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Campaign</th>
-                <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Date</th>
-                <th class="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
+                <th class="px-4 py-3 text-left text-xs font-medium text-theme-muted uppercase tracking-wider">Recipient</th>
+                <th class="px-4 py-3 text-left text-xs font-medium text-theme-muted uppercase tracking-wider">Subject</th>
+                <th class="px-4 py-3 text-left text-xs font-medium text-theme-muted uppercase tracking-wider">Status</th>
+                <th class="px-4 py-3 text-left text-xs font-medium text-theme-muted uppercase tracking-wider">Campaign</th>
+                <th class="px-4 py-3 text-left text-xs font-medium text-theme-muted uppercase tracking-wider">Date</th>
+                <th class="px-4 py-3 text-right text-xs font-medium text-theme-muted uppercase tracking-wider">Actions</th>
               </tr>
             </thead>
-            <tbody class="bg-white divide-y divide-gray-200">
+            <tbody class="bg-theme-raised divide-y divide-gray-200">
               <tr
                 v-for="email in mailsData.data"
                 :key="email.id"
-                :class="['hover:bg-gray-50 cursor-pointer', selectedIds.includes(email.id) ? 'bg-blue-50' : '']"
+                :class="['hover:bg-theme-overlay cursor-pointer', selectedIds.includes(email.id) ? 'bg-blue-50' : '']"
                 @click="selectedEmail = email"
               >
                 <td class="px-4 py-4 w-10" @click.stop>
                   <input
                     type="checkbox"
                     :checked="selectedIds.includes(email.id)"
-                    class="w-4 h-4 text-linkedin border-gray-300 rounded focus:ring-linkedin"
+                    class="w-4 h-4 text-linkedin border-theme rounded focus:ring-linkedin"
                     @change="handleSelectRow(email.id, $event)"
                   />
                 </td>
                 <td class="px-4 py-4 whitespace-nowrap">
                   <div>
-                    <p class="text-sm font-medium text-gray-900">{{ email.prospect?.full_name || 'Unknown' }}</p>
-                    <p class="text-sm text-gray-500">{{ email.to_email }}</p>
+                    <p class="text-sm font-medium text-theme-primary">{{ email.prospect?.full_name || 'Unknown' }}</p>
+                    <p class="text-sm text-theme-muted">{{ email.to_email }}</p>
                   </div>
                 </td>
                 <td class="px-4 py-4">
-                  <p class="text-sm text-gray-900 truncate max-w-xs">{{ email.subject || '(No subject)' }}</p>
+                  <p class="text-sm text-theme-primary truncate max-w-xs">{{ email.subject || '(No subject)' }}</p>
                 </td>
                 <td class="px-4 py-4 whitespace-nowrap">
                   <span :class="['inline-flex items-center space-x-1 px-2 py-1 rounded-full text-xs font-medium', getStatusConfig(email.status).bg, getStatusConfig(email.status).text]">
@@ -602,16 +602,16 @@ const getStatusConfig = (st) => {
                   </span>
                 </td>
                 <td class="px-4 py-4 whitespace-nowrap">
-                  <p class="text-sm text-gray-500">{{ email.campaign?.name || '-' }}</p>
+                  <p class="text-sm text-theme-muted">{{ email.campaign?.name || '-' }}</p>
                 </td>
-                <td class="px-4 py-4 whitespace-nowrap text-sm text-gray-500">
+                <td class="px-4 py-4 whitespace-nowrap text-sm text-theme-muted">
                   {{ formatDate(email.sent_at || email.created_at) }}
                 </td>
                 <td class="px-4 py-4 whitespace-nowrap text-right">
                   <div class="flex items-center justify-end space-x-2">
                     <button
                       v-if="email.status !== 'sent'"
-                      class="p-1.5 text-gray-500 hover:bg-gray-200 hover:text-gray-700 rounded transition-colors"
+                      class="p-1.5 text-theme-muted hover:bg-gray-200 hover:text-theme-secondary rounded transition-colors"
                       title="Edit email"
                       @click="handleEditEmail(email, $event)"
                     >
@@ -647,8 +647,8 @@ const getStatusConfig = (st) => {
           </table>
 
           <!-- Pagination -->
-          <div v-if="mailsData?.meta" class="px-6 py-4 border-t border-gray-200 flex items-center justify-between">
-            <p class="text-sm text-gray-500">
+          <div v-if="mailsData?.meta" class="px-6 py-4 border-t border-theme flex items-center justify-between">
+            <p class="text-sm text-theme-muted">
               Showing {{ ((mailsData.meta.current_page - 1) * mailsData.meta.per_page) + 1 }} to
               {{ Math.min(mailsData.meta.current_page * mailsData.meta.per_page, mailsData.meta.total) }} of
               {{ mailsData.meta.total }} emails
@@ -663,10 +663,10 @@ const getStatusConfig = (st) => {
 
       <!-- Email Detail Modal -->
       <div v-if="selectedEmail" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-        <div class="bg-white rounded-lg shadow-xl max-w-2xl w-full mx-4 max-h-[80vh] overflow-hidden">
-          <div class="px-6 py-4 border-b border-gray-200 flex items-center justify-between">
-            <h3 class="text-lg font-semibold text-gray-900">Email Details</h3>
-            <button class="text-gray-400 hover:text-gray-600" @click="selectedEmail = null">
+        <div class="bg-theme-raised rounded-lg shadow-xl max-w-2xl w-full mx-4 max-h-[80vh] overflow-hidden">
+          <div class="px-6 py-4 border-b border-theme flex items-center justify-between">
+            <h3 class="text-lg font-semibold text-theme-primary">Email Details</h3>
+            <button class="text-theme-muted hover:text-theme-secondary" @click="selectedEmail = null">
               <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
               </svg>
@@ -675,15 +675,15 @@ const getStatusConfig = (st) => {
           <div class="p-6 overflow-y-auto max-h-[60vh]">
             <div class="space-y-4">
               <div>
-                <label class="text-xs text-gray-500 uppercase">To</label>
-                <p class="text-gray-900">{{ selectedEmail.prospect?.full_name }} &lt;{{ selectedEmail.to_email }}&gt;</p>
+                <label class="text-xs text-theme-muted uppercase">To</label>
+                <p class="text-theme-primary">{{ selectedEmail.prospect?.full_name }} &lt;{{ selectedEmail.to_email }}&gt;</p>
               </div>
               <div>
-                <label class="text-xs text-gray-500 uppercase">Subject</label>
-                <p class="text-gray-900 font-medium">{{ selectedEmail.subject }}</p>
+                <label class="text-xs text-theme-muted uppercase">Subject</label>
+                <p class="text-theme-primary font-medium">{{ selectedEmail.subject }}</p>
               </div>
               <div>
-                <label class="text-xs text-gray-500 uppercase">Status</label>
+                <label class="text-xs text-theme-muted uppercase">Status</label>
                 <div class="mt-1">
                   <span :class="['inline-flex items-center space-x-1 px-2 py-1 rounded-full text-xs font-medium', getStatusConfig(selectedEmail.status).bg, getStatusConfig(selectedEmail.status).text]">
                     <span class="capitalize">{{ selectedEmail.status }}</span>
@@ -691,28 +691,28 @@ const getStatusConfig = (st) => {
                 </div>
               </div>
               <div v-if="selectedEmail.error_message">
-                <label class="text-xs text-gray-500 uppercase">Error</label>
+                <label class="text-xs text-theme-muted uppercase">Error</label>
                 <p class="text-red-600 text-sm">{{ selectedEmail.error_message }}</p>
               </div>
               <div>
-                <label class="text-xs text-gray-500 uppercase">Message</label>
-                <div class="mt-2 p-4 bg-gray-50 rounded-lg border border-gray-200">
-                  <p class="text-gray-900 whitespace-pre-wrap">{{ selectedEmail.body }}</p>
+                <label class="text-xs text-theme-muted uppercase">Message</label>
+                <div class="mt-2 p-4 bg-theme-overlay rounded-lg border border-theme">
+                  <p class="text-theme-primary whitespace-pre-wrap">{{ selectedEmail.body }}</p>
                 </div>
               </div>
-              <div class="flex space-x-6 text-sm text-gray-500">
+              <div class="flex space-x-6 text-sm text-theme-muted">
                 <div>
-                  <label class="text-xs text-gray-500 uppercase">Sent At</label>
+                  <label class="text-xs text-theme-muted uppercase">Sent At</label>
                   <p>{{ formatDate(selectedEmail.sent_at || selectedEmail.created_at) }}</p>
                 </div>
                 <div v-if="selectedEmail.campaign">
-                  <label class="text-xs text-gray-500 uppercase">Campaign</label>
+                  <label class="text-xs text-theme-muted uppercase">Campaign</label>
                   <p>{{ selectedEmail.campaign.name }}</p>
                 </div>
               </div>
             </div>
           </div>
-          <div class="px-6 py-4 border-t border-gray-200 flex justify-end">
+          <div class="px-6 py-4 border-t border-theme flex justify-end">
             <Button variant="secondary" @click="selectedEmail = null">Close</Button>
           </div>
         </div>
@@ -720,8 +720,8 @@ const getStatusConfig = (st) => {
 
       <!-- Extraction Results Modal -->
       <div v-if="showExtractionModal && selectedCampaign" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-        <div class="bg-white rounded-lg shadow-xl max-w-2xl w-full mx-4 max-h-[85vh] overflow-hidden">
-          <div class="px-6 py-4 border-b border-gray-200 bg-linkedin text-white">
+        <div class="bg-theme-raised rounded-lg shadow-xl max-w-2xl w-full mx-4 max-h-[85vh] overflow-hidden">
+          <div class="px-6 py-4 border-b border-theme bg-linkedin text-white">
             <div class="flex items-center justify-between">
               <div class="flex items-center space-x-3">
                 <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -743,14 +743,14 @@ const getStatusConfig = (st) => {
                 <p class="text-3xl font-bold text-green-600">{{ selectedCampaign.with_email_count }}</p>
                 <p class="text-sm text-green-700">Emails Found</p>
               </div>
-              <div class="bg-gray-50 rounded-lg p-4 text-center">
-                <p class="text-3xl font-bold text-gray-600">{{ selectedCampaign.without_email_count }}</p>
-                <p class="text-sm text-gray-700">Not Found</p>
+              <div class="bg-theme-overlay rounded-lg p-4 text-center">
+                <p class="text-3xl font-bold text-theme-secondary">{{ selectedCampaign.without_email_count }}</p>
+                <p class="text-sm text-theme-secondary">Not Found</p>
               </div>
             </div>
             <div v-if="selectedCampaign.with_email_count > 0" class="mb-6">
               <div class="flex items-center justify-between mb-2">
-                <label class="block text-sm font-medium text-gray-700">Email Template</label>
+                <label class="block text-sm font-medium text-theme-secondary">Email Template</label>
                 <button type="button" class="text-sm text-linkedin hover:underline" @click="showChangeTemplate = !showChangeTemplate">
                   {{ showChangeTemplate ? 'Cancel' : 'Change Template' }}
                 </button>
@@ -758,13 +758,13 @@ const getStatusConfig = (st) => {
               <select
                 v-if="showChangeTemplate"
                 v-model="extractionTemplateId"
-                class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-linkedin focus:border-transparent"
+                class="w-full border border-theme rounded-lg px-3 py-2 focus:ring-2 focus:ring-linkedin focus:border-transparent"
               >
                 <option v-for="template in emailTemplates" :key="template.id" :value="template.id">{{ template.name }}</option>
               </select>
-              <div v-else-if="extractionCurrentTemplate" class="bg-gray-50 rounded-lg p-3 border border-gray-200">
-                <p class="font-medium text-gray-900">{{ extractionCurrentTemplate.name }}</p>
-                <p v-if="extractionCurrentTemplate.subject" class="text-sm text-gray-600 mt-1">Subject: {{ extractionCurrentTemplate.subject }}</p>
+              <div v-else-if="extractionCurrentTemplate" class="bg-theme-overlay rounded-lg p-3 border border-theme">
+                <p class="font-medium text-theme-primary">{{ extractionCurrentTemplate.name }}</p>
+                <p v-if="extractionCurrentTemplate.subject" class="text-sm text-theme-secondary mt-1">Subject: {{ extractionCurrentTemplate.subject }}</p>
               </div>
               <div v-else class="text-sm text-yellow-700 bg-yellow-50 p-3 rounded-lg">
                 No template selected. You can save as draft and add a template later, or select one now.
@@ -772,34 +772,34 @@ const getStatusConfig = (st) => {
               </div>
             </div>
             <div v-if="selectedCampaign.prospects_with_email?.length > 0" class="mb-4">
-              <h4 class="text-sm font-medium text-gray-700 mb-2 flex items-center">
+              <h4 class="text-sm font-medium text-theme-secondary mb-2 flex items-center">
                 <span class="w-2 h-2 bg-green-500 rounded-full mr-2"></span>
                 Prospects with Email ({{ selectedCampaign.with_email_count }})
               </h4>
-              <div class="bg-gray-50 rounded-lg max-h-32 overflow-y-auto">
+              <div class="bg-theme-overlay rounded-lg max-h-32 overflow-y-auto">
                 <ul class="divide-y divide-gray-200">
                   <li v-for="prospect in selectedCampaign.prospects_with_email" :key="prospect.id" class="px-3 py-2 flex justify-between items-center">
-                    <span class="text-sm text-gray-900">{{ prospect.full_name }}</span>
-                    <span class="text-sm text-gray-500">{{ prospect.email }}</span>
+                    <span class="text-sm text-theme-primary">{{ prospect.full_name }}</span>
+                    <span class="text-sm text-theme-muted">{{ prospect.email }}</span>
                   </li>
                 </ul>
               </div>
             </div>
             <div v-if="selectedCampaign.prospects_without_email?.length > 0">
-              <h4 class="text-sm font-medium text-gray-700 mb-2 flex items-center">
+              <h4 class="text-sm font-medium text-theme-secondary mb-2 flex items-center">
                 <span class="w-2 h-2 bg-gray-400 rounded-full mr-2"></span>
                 Prospects without Email ({{ selectedCampaign.without_email_count }})
               </h4>
-              <div class="bg-gray-50 rounded-lg max-h-32 overflow-y-auto">
+              <div class="bg-theme-overlay rounded-lg max-h-32 overflow-y-auto">
                 <ul class="divide-y divide-gray-200">
                   <li v-for="prospect in selectedCampaign.prospects_without_email" :key="prospect.id" class="px-3 py-2">
-                    <span class="text-sm text-gray-600">{{ prospect.full_name }}</span>
+                    <span class="text-sm text-theme-secondary">{{ prospect.full_name }}</span>
                   </li>
                 </ul>
               </div>
             </div>
           </div>
-          <div class="px-6 py-4 border-t border-gray-200 bg-gray-50">
+          <div class="px-6 py-4 border-t border-theme bg-theme-overlay">
             <div v-if="selectedCampaign.with_email_count > 0" class="flex flex-col sm:flex-row gap-3">
               <Button variant="secondary" class="flex-1" :disabled="queueMutation.isPending.value || discardMutation.isPending.value" @click="handleDiscard">Don't Save</Button>
               <Button variant="secondary" class="flex-1" :disabled="queueMutation.isPending.value || discardMutation.isPending.value" @click="handleSendLater(extractionTemplateId || null)">
@@ -814,7 +814,7 @@ const getStatusConfig = (st) => {
             <div v-else class="flex justify-end">
               <Button variant="secondary" @click="handleCloseExtractionModal">Close</Button>
             </div>
-            <p v-if="!extractionTemplateId && !selectedCampaign.template && selectedCampaign.with_email_count > 0" class="text-xs text-gray-500 mt-2 text-center">
+            <p v-if="!extractionTemplateId && !selectedCampaign.template && selectedCampaign.with_email_count > 0" class="text-xs text-theme-muted mt-2 text-center">
               Template is required to send emails. Save as draft to add one later.
             </p>
           </div>
@@ -823,23 +823,23 @@ const getStatusConfig = (st) => {
 
       <!-- Edit Email Modal -->
       <div v-if="editingEmail" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-        <div class="bg-white rounded-lg shadow-xl max-w-2xl w-full mx-4 max-h-[85vh] overflow-hidden">
-          <div class="px-6 py-4 border-b border-gray-200">
+        <div class="bg-theme-raised rounded-lg shadow-xl max-w-2xl w-full mx-4 max-h-[85vh] overflow-hidden">
+          <div class="px-6 py-4 border-b border-theme">
             <div class="flex items-center justify-between">
-              <h3 class="text-lg font-semibold text-gray-900">Edit Email</h3>
-              <button class="text-gray-400 hover:text-gray-600" @click="editingEmail = null">
+              <h3 class="text-lg font-semibold text-theme-primary">Edit Email</h3>
+              <button class="text-theme-muted hover:text-theme-secondary" @click="editingEmail = null">
                 <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
                 </svg>
               </button>
             </div>
-            <p class="text-sm text-gray-500 mt-1">To: {{ editingEmail.prospect?.full_name || editingEmail.to_email }}</p>
+            <p class="text-sm text-theme-muted mt-1">To: {{ editingEmail.prospect?.full_name || editingEmail.to_email }}</p>
           </div>
           <div class="p-6 overflow-y-auto max-h-[55vh] space-y-4">
             <div>
-              <label class="block text-sm font-medium text-gray-700 mb-1">Apply Template</label>
+              <label class="block text-sm font-medium text-theme-secondary mb-1">Apply Template</label>
               <div class="flex space-x-2">
-                <select v-model="editTemplateId" class="flex-1 border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-linkedin focus:border-transparent">
+                <select v-model="editTemplateId" class="flex-1 border border-theme rounded-lg px-3 py-2 focus:ring-2 focus:ring-linkedin focus:border-transparent">
                   <option value="">Select a template...</option>
                   <option v-for="t in emailTemplates" :key="t.id" :value="t.id">{{ t.name }}</option>
                 </select>
@@ -847,18 +847,18 @@ const getStatusConfig = (st) => {
               </div>
             </div>
             <div>
-              <label class="block text-sm font-medium text-gray-700 mb-1">Subject <span class="text-red-500">*</span></label>
-              <input v-model="editSubject" type="text" class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-linkedin focus:border-transparent" placeholder="Enter email subject..." />
+              <label class="block text-sm font-medium text-theme-secondary mb-1">Subject <span class="text-red-500">*</span></label>
+              <input v-model="editSubject" type="text" class="w-full border border-theme rounded-lg px-3 py-2 focus:ring-2 focus:ring-linkedin focus:border-transparent" placeholder="Enter email subject..." />
             </div>
             <div>
-              <label class="block text-sm font-medium text-gray-700 mb-1">Message <span class="text-red-500">*</span></label>
-              <textarea v-model="editBody" rows="10" class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-linkedin focus:border-transparent resize-none" placeholder="Enter your email message..." />
+              <label class="block text-sm font-medium text-theme-secondary mb-1">Message <span class="text-red-500">*</span></label>
+              <textarea v-model="editBody" rows="10" class="w-full border border-theme rounded-lg px-3 py-2 focus:ring-2 focus:ring-linkedin focus:border-transparent resize-none" placeholder="Enter your email message..." />
             </div>
-            <div class="text-xs text-gray-500 bg-gray-50 p-3 rounded-lg">
+            <div class="text-xs text-theme-muted bg-theme-overlay p-3 rounded-lg">
               <strong>Tip:</strong> Use placeholders like {firstName}, {lastName}, {fullName}, {company}, {headline} in templates for personalization.
             </div>
           </div>
-          <div class="px-6 py-4 border-t border-gray-200 bg-gray-50 flex justify-end space-x-3">
+          <div class="px-6 py-4 border-t border-theme bg-theme-overlay flex justify-end space-x-3">
             <Button variant="secondary" @click="editingEmail = null">Cancel</Button>
             <Button :disabled="updateEmailMutation.isPending.value || !editSubject.trim() || !editBody.trim()" @click="handleSaveEdit">
               <Spinner v-if="updateEmailMutation.isPending.value" size="sm" />
@@ -870,8 +870,8 @@ const getStatusConfig = (st) => {
 
       <!-- Create Email Modal -->
       <div v-if="showCreateModal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-        <div class="bg-white rounded-lg shadow-xl max-w-2xl w-full mx-4 max-h-[85vh] overflow-hidden">
-          <div class="px-6 py-4 border-b border-gray-200 bg-linkedin text-white">
+        <div class="bg-theme-raised rounded-lg shadow-xl max-w-2xl w-full mx-4 max-h-[85vh] overflow-hidden">
+          <div class="px-6 py-4 border-b border-theme bg-linkedin text-white">
             <div class="flex items-center justify-between">
               <div class="flex items-center space-x-3">
                 <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -888,8 +888,8 @@ const getStatusConfig = (st) => {
           </div>
           <div class="p-6 overflow-y-auto max-h-[55vh] space-y-4">
             <div v-if="prospectsWithEmail.length > 0">
-              <label class="block text-sm font-medium text-gray-700 mb-1">Select Prospect</label>
-              <select class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-linkedin focus:border-transparent" @change="handleProspectSelect">
+              <label class="block text-sm font-medium text-theme-secondary mb-1">Select Prospect</label>
+              <select class="w-full border border-theme rounded-lg px-3 py-2 focus:ring-2 focus:ring-linkedin focus:border-transparent" @change="handleProspectSelect">
                 <option value="">-- Select a prospect or enter email manually --</option>
                 <option v-for="prospect in prospectsWithEmail" :key="prospect.id" :value="prospect.id">
                   {{ prospect.full_name }} ({{ prospect.email }})
@@ -897,13 +897,13 @@ const getStatusConfig = (st) => {
               </select>
             </div>
             <div>
-              <label class="block text-sm font-medium text-gray-700 mb-1">Recipient Email <span class="text-red-500">*</span></label>
-              <input v-model="createToEmail" type="email" class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-linkedin focus:border-transparent" placeholder="recipient@example.com" />
+              <label class="block text-sm font-medium text-theme-secondary mb-1">Recipient Email <span class="text-red-500">*</span></label>
+              <input v-model="createToEmail" type="email" class="w-full border border-theme rounded-lg px-3 py-2 focus:ring-2 focus:ring-linkedin focus:border-transparent" placeholder="recipient@example.com" />
             </div>
             <div>
-              <label class="block text-sm font-medium text-gray-700 mb-1">Apply Template (Optional)</label>
+              <label class="block text-sm font-medium text-theme-secondary mb-1">Apply Template (Optional)</label>
               <div class="flex space-x-2">
-                <select v-model="createTemplateId" class="flex-1 border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-linkedin focus:border-transparent">
+                <select v-model="createTemplateId" class="flex-1 border border-theme rounded-lg px-3 py-2 focus:ring-2 focus:ring-linkedin focus:border-transparent">
                   <option value="">Select a template...</option>
                   <option v-for="t in emailTemplates" :key="t.id" :value="t.id">{{ t.name }}</option>
                 </select>
@@ -911,15 +911,15 @@ const getStatusConfig = (st) => {
               </div>
             </div>
             <div>
-              <label class="block text-sm font-medium text-gray-700 mb-1">Subject <span class="text-red-500">*</span></label>
-              <input v-model="createSubject" type="text" class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-linkedin focus:border-transparent" placeholder="Enter email subject..." />
+              <label class="block text-sm font-medium text-theme-secondary mb-1">Subject <span class="text-red-500">*</span></label>
+              <input v-model="createSubject" type="text" class="w-full border border-theme rounded-lg px-3 py-2 focus:ring-2 focus:ring-linkedin focus:border-transparent" placeholder="Enter email subject..." />
             </div>
             <div>
-              <label class="block text-sm font-medium text-gray-700 mb-1">Message <span class="text-red-500">*</span></label>
-              <textarea v-model="createBody" rows="10" class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-linkedin focus:border-transparent resize-none" placeholder="Enter your email message..." />
+              <label class="block text-sm font-medium text-theme-secondary mb-1">Message <span class="text-red-500">*</span></label>
+              <textarea v-model="createBody" rows="10" class="w-full border border-theme rounded-lg px-3 py-2 focus:ring-2 focus:ring-linkedin focus:border-transparent resize-none" placeholder="Enter your email message..." />
             </div>
           </div>
-          <div class="px-6 py-4 border-t border-gray-200 bg-gray-50 flex justify-end space-x-3">
+          <div class="px-6 py-4 border-t border-theme bg-theme-overlay flex justify-end space-x-3">
             <Button variant="secondary" @click="showCreateModal = false">Cancel</Button>
             <Button :disabled="createEmailMutation.isPending.value || !isValidEmail(createToEmail) || !createSubject.trim() || !createBody.trim()" @click="handleCreateEmail">
               <Spinner v-if="createEmailMutation.isPending.value" size="sm" />

@@ -53,11 +53,11 @@ const handlePause = (id) => {
 
 const getStatusBadgeClass = (status) => {
   const styles = {
-    draft: 'bg-gray-100 text-gray-800',
+    draft: 'bg-theme-overlay text-theme-primary',
     active: 'bg-green-100 text-green-800',
     paused: 'bg-yellow-100 text-yellow-800',
     completed: 'bg-blue-100 text-blue-800',
-    archived: 'bg-gray-100 text-gray-600',
+    archived: 'bg-theme-overlay text-theme-secondary',
   }
   return styles[status] || ''
 }
@@ -77,55 +77,55 @@ const progressPercent = (campaign) => {
       <!-- Page Header -->
       <div class="flex justify-between items-start">
         <div>
-          <h1 class="text-2xl font-bold text-gray-900">Campaigns</h1>
-          <p class="text-sm text-gray-600 mt-1">
+          <h1 class="text-2xl font-bold text-theme-primary">Campaigns</h1>
+          <p class="text-sm text-theme-secondary mt-1">
             Create and manage your LinkedIn outreach campaigns
           </p>
         </div>
-        <Button variant="primary" @click="router.push('/campaign/create')">
+        <Button variant="primary" @click="router.push('/campaigns/create')">
           + New Campaign
         </Button>
       </div>
 
       <!-- Stats Cards -->
       <div class="grid grid-cols-1 md:grid-cols-5 gap-4">
-        <div class="bg-white rounded-lg shadow p-4">
-          <div class="text-sm text-gray-600">Total</div>
-          <div class="text-2xl font-bold text-gray-900">{{ stats.total || 0 }}</div>
+        <div class="bg-theme-raised rounded-lg shadow p-4">
+          <div class="text-sm text-theme-secondary">Total</div>
+          <div class="text-2xl font-bold text-theme-primary">{{ stats.total || 0 }}</div>
         </div>
-        <div class="bg-white rounded-lg shadow p-4">
-          <div class="text-sm text-gray-600">Active</div>
+        <div class="bg-theme-raised rounded-lg shadow p-4">
+          <div class="text-sm text-theme-secondary">Active</div>
           <div class="text-2xl font-bold text-green-600">{{ stats.active || 0 }}</div>
         </div>
-        <div class="bg-white rounded-lg shadow p-4">
-          <div class="text-sm text-gray-600">Draft</div>
-          <div class="text-2xl font-bold text-gray-600">{{ stats.draft || 0 }}</div>
+        <div class="bg-theme-raised rounded-lg shadow p-4">
+          <div class="text-sm text-theme-secondary">Draft</div>
+          <div class="text-2xl font-bold text-theme-secondary">{{ stats.draft || 0 }}</div>
         </div>
-        <div class="bg-white rounded-lg shadow p-4">
-          <div class="text-sm text-gray-600">Paused</div>
+        <div class="bg-theme-raised rounded-lg shadow p-4">
+          <div class="text-sm text-theme-secondary">Paused</div>
           <div class="text-2xl font-bold text-yellow-600">{{ stats.paused || 0 }}</div>
         </div>
-        <div class="bg-white rounded-lg shadow p-4">
-          <div class="text-sm text-gray-600">Completed</div>
+        <div class="bg-theme-raised rounded-lg shadow p-4">
+          <div class="text-sm text-theme-secondary">Completed</div>
           <div class="text-2xl font-bold text-blue-600">{{ stats.completed || 0 }}</div>
         </div>
       </div>
 
       <!-- Filters -->
-      <div class="bg-white rounded-lg shadow p-4">
+      <div class="bg-theme-raised rounded-lg shadow p-4">
         <div class="flex flex-col md:flex-row gap-4">
           <div class="flex-1">
             <input
               v-model="searchQuery"
               type="text"
               placeholder="Search campaigns..."
-              class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-linkedin focus:border-transparent"
+              class="w-full px-4 py-2 border border-theme rounded-lg focus:ring-2 focus:ring-linkedin focus:border-transparent"
             />
           </div>
           <div class="w-full md:w-48">
             <select
               v-model="statusFilter"
-              class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-linkedin focus:border-transparent"
+              class="w-full px-4 py-2 border border-theme rounded-lg focus:ring-2 focus:ring-linkedin focus:border-transparent"
             >
               <option value="">All Statuses</option>
               <option value="draft">Draft</option>
@@ -139,44 +139,44 @@ const progressPercent = (campaign) => {
       </div>
 
       <!-- Campaigns List -->
-      <div class="bg-white rounded-lg shadow">
+      <div class="bg-theme-raised rounded-lg shadow">
         <div v-if="isLoading" class="flex justify-center py-12">
           <Spinner size="lg" />
         </div>
         <div v-else-if="campaigns.length === 0" class="text-center py-12 px-6">
           <div class="mb-4">
-            <svg class="mx-auto h-12 w-12 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <svg class="mx-auto h-12 w-12 text-theme-muted" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
             </svg>
           </div>
-          <h3 class="text-lg font-medium text-gray-900 mb-2">
+          <h3 class="text-lg font-medium text-theme-primary mb-2">
             {{ searchQuery || statusFilter ? 'No campaigns found' : 'No campaigns yet' }}
           </h3>
-          <p class="text-gray-500 mb-6">
+          <p class="text-theme-muted mb-6">
             {{ searchQuery || statusFilter ? 'Try adjusting your filters' : 'Get started by creating your first campaign' }}
           </p>
-          <Button v-if="!searchQuery && !statusFilter" variant="primary" @click="router.push('/campaign/create')">
+          <Button v-if="!searchQuery && !statusFilter" variant="primary" @click="router.push('/campaigns/create')">
             Create Campaign
           </Button>
         </div>
         <div v-else class="overflow-x-auto">
           <table class="min-w-full divide-y divide-gray-200">
-            <thead class="bg-gray-50">
+            <thead class="bg-theme-overlay">
               <tr>
-                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Name</th>
-                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
-                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Prospects</th>
-                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Progress</th>
-                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Daily Limit</th>
-                <th class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
+                <th class="px-6 py-3 text-left text-xs font-medium text-theme-muted uppercase tracking-wider">Name</th>
+                <th class="px-6 py-3 text-left text-xs font-medium text-theme-muted uppercase tracking-wider">Status</th>
+                <th class="px-6 py-3 text-left text-xs font-medium text-theme-muted uppercase tracking-wider">Prospects</th>
+                <th class="px-6 py-3 text-left text-xs font-medium text-theme-muted uppercase tracking-wider">Progress</th>
+                <th class="px-6 py-3 text-left text-xs font-medium text-theme-muted uppercase tracking-wider">Daily Limit</th>
+                <th class="px-6 py-3 text-right text-xs font-medium text-theme-muted uppercase tracking-wider">Actions</th>
               </tr>
             </thead>
-            <tbody class="bg-white divide-y divide-gray-200">
-              <tr v-for="campaign in campaigns" :key="campaign.id" class="hover:bg-gray-50">
+            <tbody class="bg-theme-raised divide-y divide-gray-200">
+              <tr v-for="campaign in campaigns" :key="campaign.id" class="hover:bg-theme-overlay">
                 <td class="px-6 py-4 whitespace-nowrap">
                   <div>
-                    <div class="text-sm font-medium text-gray-900">{{ campaign.name }}</div>
-                    <div v-if="campaign.description" class="text-sm text-gray-500 truncate max-w-xs">
+                    <div class="text-sm font-medium text-theme-primary">{{ campaign.name }}</div>
+                    <div v-if="campaign.description" class="text-sm text-theme-muted truncate max-w-xs">
                       {{ campaign.description }}
                     </div>
                   </div>
@@ -186,12 +186,12 @@ const progressPercent = (campaign) => {
                     {{ capitalize(campaign.status) }}
                   </span>
                 </td>
-                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                <td class="px-6 py-4 whitespace-nowrap text-sm text-theme-primary">
                   {{ campaign.total_prospects }}
                 </td>
                 <td class="px-6 py-4 whitespace-nowrap">
                   <div class="flex items-center">
-                    <div class="text-sm text-gray-900">
+                    <div class="text-sm text-theme-primary">
                       {{ campaign.processed_prospects }}/{{ campaign.total_prospects }}
                     </div>
                     <div class="ml-2 w-24 bg-gray-200 rounded-full h-2">
@@ -202,7 +202,7 @@ const progressPercent = (campaign) => {
                     </div>
                   </div>
                 </td>
-                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                <td class="px-6 py-4 whitespace-nowrap text-sm text-theme-primary">
                   {{ campaign.daily_limit }}
                 </td>
                 <td class="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
@@ -240,7 +240,7 @@ const progressPercent = (campaign) => {
                     <button
                       class="text-linkedin hover:text-linkedin-dark"
                       title="View details"
-                      @click="router.push(`/campaign/${campaign.id}`)"
+                      @click="router.push(`/campaigns/${campaign.id}`)"
                     >
                       <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
@@ -266,7 +266,7 @@ const progressPercent = (campaign) => {
 
       <!-- Pagination -->
       <div v-if="pagination.last_page > 1" class="flex justify-between items-center">
-        <div class="text-sm text-gray-700">
+        <div class="text-sm text-theme-secondary">
           Showing {{ pagination.from }} to {{ pagination.to }} of {{ pagination.total }} campaigns
         </div>
         <div class="flex space-x-2">

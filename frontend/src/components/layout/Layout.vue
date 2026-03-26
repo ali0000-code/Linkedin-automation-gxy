@@ -1,11 +1,8 @@
 <template>
-  <div class="min-h-screen bg-gray-50">
-    <!-- Sidebar -->
+  <div class="min-h-screen bg-theme-muted transition-colors duration-300">
     <Sidebar />
-
-    <!-- Main Content -->
-    <main class="ml-64 min-h-screen">
-      <div class="p-8">
+    <main class="ml-[16.5rem] min-h-screen">
+      <div class="p-8 max-w-7xl">
         <slot />
       </div>
     </main>

@@ -1,13 +1,13 @@
 <template>
   <div class="space-y-6">
     <div>
-      <h2 class="text-xl font-bold text-gray-900 mb-2">Select Tags</h2>
-      <p class="text-sm text-gray-600">
+      <h2 class="text-xl font-bold text-theme-primary mb-2">Select Tags</h2>
+      <p class="text-sm text-theme-secondary">
         Choose which tagged prospects to include in this campaign
       </p>
     </div>
 
-    <div v-if="tags.length === 0" class="text-center py-8 text-gray-500">
+    <div v-if="tags.length === 0" class="text-center py-8 text-theme-muted">
       <p class="mb-2">No tags with prospects found.</p>
       <p class="text-sm">Create some tags and add prospects to them first.</p>
     </div>
@@ -22,7 +22,7 @@
             'p-4 border-2 rounded-lg cursor-pointer transition-all',
             campaignData.selectedTags.includes(tag.id)
               ? 'border-linkedin bg-blue-50'
-              : 'border-gray-200 hover:border-gray-300'
+              : 'border-theme hover:border-theme'
           ]"
         >
           <div class="flex items-center justify-between">
@@ -40,17 +40,17 @@
                     class="w-3 h-3 rounded-full"
                     :style="{ backgroundColor: tag.color }"
                   />
-                  <span class="font-medium text-gray-900">{{ tag.name }}</span>
+                  <span class="font-medium text-theme-primary">{{ tag.name }}</span>
                 </div>
               </div>
             </div>
-            <div class="text-sm text-gray-600">{{ tag.prospects_count }} prospects</div>
+            <div class="text-sm text-theme-secondary">{{ tag.prospects_count }} prospects</div>
           </div>
         </div>
       </div>
 
       <div v-if="campaignData.selectedTags.length > 0" class="p-4 bg-linkedin-light rounded-lg">
-        <div class="text-sm font-medium text-gray-900">
+        <div class="text-sm font-medium text-theme-primary">
           Total prospects: <span class="text-linkedin font-bold">{{ totalProspects }}</span>
         </div>
       </div>

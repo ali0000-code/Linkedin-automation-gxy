@@ -101,11 +101,11 @@ const activeTemplateType = computed(() => templateTypes.find(type => type.id ===
   <Layout>
     <div class="flex h-[calc(100vh-4rem)]">
       <!-- Left Sidebar - Template Types -->
-      <div class="w-80 bg-white border-r border-gray-200 flex flex-col">
+      <div class="w-80 bg-theme-raised border-r border-theme flex flex-col">
         <!-- Sidebar Header -->
-        <div class="p-6 border-b border-gray-200">
-          <h2 class="text-lg font-semibold text-gray-900">Template Types</h2>
-          <p class="text-sm text-gray-600 mt-1">Select a template type to manage</p>
+        <div class="p-6 border-b border-theme">
+          <h2 class="text-lg font-semibold text-theme-primary">Template Types</h2>
+          <p class="text-sm text-theme-secondary mt-1">Select a template type to manage</p>
         </div>
 
         <!-- Template Types List -->
@@ -118,11 +118,11 @@ const activeTemplateType = computed(() => templateTypes.find(type => type.id ===
                 'w-full flex items-center space-x-3 px-4 py-3 rounded-lg transition-colors',
                 activeType === type.id
                   ? 'bg-linkedin text-white'
-                  : 'text-gray-700 hover:bg-gray-100'
+                  : 'text-theme-secondary hover:bg-theme-overlay'
               ]"
               @click="handleTypeChange(type.id)"
             >
-              <div :class="activeType === type.id ? 'text-white' : 'text-gray-500'">
+              <div :class="activeType === type.id ? 'text-white' : 'text-theme-muted'">
                 <!-- Invitation icon -->
                 <svg v-if="type.id === 'invitation'" class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z" />
@@ -145,11 +145,11 @@ const activeTemplateType = computed(() => templateTypes.find(type => type.id ===
       <!-- Right Content - Templates -->
       <div class="flex-1 flex flex-col overflow-hidden">
         <!-- Header Section - Fixed -->
-        <div class="flex-shrink-0 bg-white border-b border-gray-200 p-6">
+        <div class="flex-shrink-0 bg-theme-raised border-b border-theme p-6">
           <div class="flex justify-between items-start">
             <div>
-              <h1 class="text-2xl font-bold text-gray-900">{{ activeTemplateType.name }}</h1>
-              <p class="text-sm text-gray-600 mt-1">
+              <h1 class="text-2xl font-bold text-theme-primary">{{ activeTemplateType.name }}</h1>
+              <p class="text-sm text-theme-secondary mt-1">
                 Create and manage your {{ activeTemplateType.name.toLowerCase() }}
               </p>
             </div>
@@ -178,15 +178,15 @@ const activeTemplateType = computed(() => templateTypes.find(type => type.id ===
         </div>
 
         <!-- Templates List - Scrollable -->
-        <div class="flex-1 overflow-y-auto bg-gray-50 p-6">
+        <div class="flex-1 overflow-y-auto bg-theme-overlay p-6">
           <div v-if="isLoading" class="flex justify-center py-12">
             <Spinner size="lg" />
           </div>
-          <div v-else-if="templates.length === 0" class="bg-white rounded-lg shadow">
+          <div v-else-if="templates.length === 0" class="bg-theme-raised rounded-lg shadow">
             <!-- Empty State -->
             <div class="text-center py-12 px-6">
               <div class="mb-4 flex justify-center">
-                <div class="text-gray-400">
+                <div class="text-theme-muted">
                   <svg v-if="activeType === 'invitation'" class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z" />
                   </svg>
@@ -198,8 +198,8 @@ const activeTemplateType = computed(() => templateTypes.find(type => type.id ===
                   </svg>
                 </div>
               </div>
-              <h3 class="text-lg font-medium text-gray-900 mb-2">{{ activeTemplateType.emptyTitle }}</h3>
-              <p class="text-gray-500 mb-6">{{ activeTemplateType.emptyDescription }}</p>
+              <h3 class="text-lg font-medium text-theme-primary mb-2">{{ activeTemplateType.emptyTitle }}</h3>
+              <p class="text-theme-muted mb-6">{{ activeTemplateType.emptyDescription }}</p>
               <Button variant="primary" @click="showCreateModal = true">
                 {{ activeTemplateType.buttonText }}
               </Button>
@@ -207,16 +207,16 @@ const activeTemplateType = computed(() => templateTypes.find(type => type.id ===
           </div>
           <template v-else>
             <!-- Bulk Actions Bar -->
-            <div v-if="templates.length > 0" class="bg-white rounded-lg shadow p-4 mb-4">
+            <div v-if="templates.length > 0" class="bg-theme-raised rounded-lg shadow p-4 mb-4">
               <div class="flex items-center justify-between">
                 <label class="flex items-center cursor-pointer">
                   <input
                     type="checkbox"
                     :checked="selectedTemplates.length === templates.length && templates.length > 0"
-                    class="w-4 h-4 text-linkedin border-gray-300 rounded focus:ring-linkedin"
+                    class="w-4 h-4 text-linkedin border-theme rounded focus:ring-linkedin"
                     @change="handleSelectAll"
                   />
-                  <span class="ml-3 text-sm font-medium text-gray-700">
+                  <span class="ml-3 text-sm font-medium text-theme-secondary">
                     Select All ({{ templates.length }})
                   </span>
                 </label>
@@ -231,27 +231,27 @@ const activeTemplateType = computed(() => templateTypes.find(type => type.id ===
               <div
                 v-for="template in templates"
                 :key="template.id"
-                class="bg-white rounded-lg shadow p-6 hover:shadow-md transition-shadow"
+                class="bg-theme-raised rounded-lg shadow p-6 hover:shadow-md transition-shadow border border-theme-subtle"
               >
                 <div class="flex items-start space-x-4">
                   <!-- Checkbox -->
                   <input
                     type="checkbox"
                     :checked="selectedTemplates.includes(template.id)"
-                    class="mt-1 w-4 h-4 text-linkedin border-gray-300 rounded focus:ring-linkedin"
+                    class="mt-1 w-4 h-4 text-linkedin border-theme rounded focus:ring-linkedin"
                     @change="handleToggleTemplate(template.id)"
                   />
 
                   <!-- Template Content -->
                   <div class="flex-1">
-                    <h3 class="text-lg font-semibold text-gray-900 mb-2">{{ template.name }}</h3>
+                    <h3 class="text-lg font-semibold text-theme-primary mb-2">{{ template.name }}</h3>
                     <div v-if="template.type === 'email' && template.subject" class="mb-2 px-3 py-1 bg-purple-50 rounded-lg inline-block">
                       <span class="text-sm text-purple-700">
                         <strong>Subject:</strong> {{ template.subject }}
                       </span>
                     </div>
-                    <p class="text-gray-700 whitespace-pre-wrap break-words">{{ template.content }}</p>
-                    <div class="mt-3 flex items-center space-x-4 text-sm text-gray-500">
+                    <p class="text-theme-secondary whitespace-pre-wrap break-words">{{ template.content }}</p>
+                    <div class="mt-3 flex items-center space-x-4 text-sm text-theme-muted">
                       <span>{{ template.content.length }} characters</span>
                       <span>&bull;</span>
                       <span>Created {{ new Date(template.created_at).toLocaleDateString() }}</span>

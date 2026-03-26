@@ -352,8 +352,8 @@ const formatScheduledTime = (dateString) => {
       <!-- Header -->
       <div class="flex items-center justify-between mb-4">
         <div>
-          <h1 class="text-2xl font-bold text-gray-900">Inbox</h1>
-          <p class="text-gray-600 mt-1">
+          <h1 class="text-2xl font-bold text-theme-primary">Inbox</h1>
+          <p class="text-theme-secondary mt-1">
             {{ stats.total_conversations || 0 }} conversations
             <span v-if="stats.unread_conversations > 0" class="ml-2 text-linkedin font-medium">
               ({{ stats.unread_conversations }} unread)
@@ -380,17 +380,17 @@ const formatScheduledTime = (dateString) => {
       </div>
 
       <!-- Main Content -->
-      <div class="flex-1 bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden flex">
+      <div class="flex-1 bg-theme-raised rounded-lg shadow-sm border border-theme overflow-hidden flex">
         <!-- Conversation List -->
-        <div :class="['w-full md:w-96 border-r border-gray-200 flex flex-col', selectedConversationId ? 'hidden md:flex' : 'flex']">
+        <div :class="['w-full md:w-96 border-r border-theme flex flex-col', selectedConversationId ? 'hidden md:flex' : 'flex']">
           <div v-if="isLoading" class="flex items-center justify-center h-64">
             <Spinner size="lg" />
           </div>
-          <div v-else-if="conversations.length === 0" class="flex flex-col items-center justify-center h-full text-gray-500 p-8">
+          <div v-else-if="conversations.length === 0" class="flex flex-col items-center justify-center h-full text-theme-muted p-8">
             <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4" />
             </svg>
-            <h3 class="mt-4 text-lg font-medium text-gray-900">No conversations yet</h3>
+            <h3 class="mt-4 text-lg font-medium text-theme-primary">No conversations yet</h3>
             <p class="mt-2 text-center">Sync your LinkedIn inbox to see your conversations here.</p>
             <Button class="mt-4" :disabled="isSyncing" @click="handleSync">
               <Spinner v-if="isSyncing" size="sm" />
@@ -405,7 +405,7 @@ const formatScheduledTime = (dateString) => {
               v-for="conversation in conversations"
               :key="conversation.id"
               :class="[
-                'p-4 border-b border-gray-100 cursor-pointer transition-colors hover:bg-gray-50',
+                'p-4 border-b border-theme-subtle cursor-pointer transition-colors hover:bg-theme-overlay',
                 selectedConversationId === conversation.id ? 'bg-blue-50 border-l-4 border-l-linkedin' : '',
                 conversation.is_unread ? 'bg-blue-50/50' : ''
               ]"
@@ -425,17 +425,17 @@ const formatScheduledTime = (dateString) => {
                 </div>
                 <div class="flex-1 min-w-0">
                   <div class="flex items-center justify-between">
-                    <h3 :class="['text-sm truncate', conversation.is_unread ? 'font-bold text-gray-900' : 'font-medium text-gray-700']">
+                    <h3 :class="['text-sm truncate', conversation.is_unread ? 'font-bold text-theme-primary' : 'font-medium text-theme-secondary']">
                       {{ conversation.participant_name }}
                     </h3>
-                    <span class="text-xs text-gray-500 flex-shrink-0 ml-2">
+                    <span class="text-xs text-theme-muted flex-shrink-0 ml-2">
                       {{ formatRelativeTime(conversation.last_message_at) }}
                     </span>
                   </div>
-                  <p v-if="conversation.participant_headline" class="text-xs text-gray-500 truncate mt-0.5">
+                  <p v-if="conversation.participant_headline" class="text-xs text-theme-muted truncate mt-0.5">
                     {{ conversation.participant_headline }}
                   </p>
-                  <p :class="['text-sm truncate mt-1', conversation.is_unread ? 'font-semibold text-gray-800' : 'text-gray-500']">
+                  <p :class="['text-sm truncate mt-1', conversation.is_unread ? 'font-semibold text-theme-primary' : 'text-theme-muted']">
                     {{ conversation.last_message_preview || 'No messages yet' }}
                   </p>
                 </div>
@@ -455,8 +455,8 @@ const formatScheduledTime = (dateString) => {
             </div>
             <template v-else-if="selectedConversation">
               <!-- Chat Header -->
-              <div class="px-4 py-3 border-b border-gray-200 bg-white flex items-center space-x-3">
-                <button class="md:hidden p-1 hover:bg-gray-100 rounded-full" @click="selectedConversationId = null">
+              <div class="px-4 py-3 border-b border-theme bg-theme-raised flex items-center space-x-3">
+                <button class="md:hidden p-1 hover:bg-theme-overlay rounded-full" @click="selectedConversationId = null">
                   <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" />
                   </svg>
@@ -471,13 +471,13 @@ const formatScheduledTime = (dateString) => {
                   {{ selectedConversation.participant_name?.charAt(0)?.toUpperCase() || '?' }}
                 </div>
                 <div class="flex-1 min-w-0">
-                  <h3 class="font-semibold text-gray-900 truncate">{{ selectedConversation.participant_name }}</h3>
-                  <p v-if="selectedConversation.participant_headline" class="text-xs text-gray-500 truncate">
+                  <h3 class="font-semibold text-theme-primary truncate">{{ selectedConversation.participant_name }}</h3>
+                  <p v-if="selectedConversation.participant_headline" class="text-xs text-theme-muted truncate">
                     {{ selectedConversation.participant_headline }}
                   </p>
                 </div>
                 <button
-                  class="p-2 hover:bg-gray-100 rounded-full text-gray-500 hover:text-linkedin disabled:opacity-50"
+                  class="p-2 hover:bg-theme-overlay rounded-full text-theme-muted hover:text-linkedin disabled:opacity-50"
                   title="Sync messages from LinkedIn"
                   :disabled="isSyncingMessages"
                   @click="handleSyncMessages"
@@ -498,8 +498,8 @@ const formatScheduledTime = (dateString) => {
               </div>
 
               <!-- Messages -->
-              <div class="flex-1 overflow-y-auto p-4 bg-gray-50">
-                <div v-if="messages.length === 0" class="text-center text-gray-500 py-8">
+              <div class="flex-1 overflow-y-auto p-4 bg-theme-overlay">
+                <div v-if="messages.length === 0" class="text-center text-theme-muted py-8">
                   <p>No messages yet.</p>
                   <p class="text-sm mt-1">Start the conversation!</p>
                 </div>
@@ -516,13 +516,13 @@ const formatScheduledTime = (dateString) => {
                           ? 'bg-amber-100 text-amber-900 border-2 border-amber-300 border-dashed rounded-br-sm'
                           : message.is_from_me
                           ? 'bg-linkedin text-white rounded-br-sm'
-                          : 'bg-gray-100 text-gray-800 rounded-bl-sm'
+                          : 'bg-theme-overlay text-theme-primary rounded-bl-sm'
                       ]"
                     >
                       <p class="text-sm whitespace-pre-wrap break-words">{{ message.content }}</p>
                       <div :class="[
                         'flex items-center justify-end mt-1 space-x-1',
-                        message.status === 'scheduled' ? 'text-amber-700' : message.is_from_me ? 'text-white/70' : 'text-gray-400'
+                        message.status === 'scheduled' ? 'text-amber-700' : message.is_from_me ? 'text-white/70' : 'text-theme-muted'
                       ]">
                         <template v-if="message.status === 'scheduled'">
                           <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -552,7 +552,7 @@ const formatScheduledTime = (dateString) => {
               </div>
 
               <!-- Message Input -->
-              <div class="p-4 border-t border-gray-200 bg-white">
+              <div class="p-4 border-t border-theme bg-theme-raised">
                 <div v-if="showScheduler" class="mb-3 p-3 bg-amber-50 border border-amber-200 rounded-lg">
                   <div class="flex items-center justify-between mb-2">
                     <span class="text-sm font-medium text-amber-800 flex items-center">
@@ -596,7 +596,7 @@ const formatScheduledTime = (dateString) => {
                       v-model="newMessage"
                       placeholder="Type a message..."
                       rows="1"
-                      class="flex-1 border border-gray-300 rounded-lg px-4 py-2 focus:ring-2 focus:ring-linkedin focus:border-transparent resize-none"
+                      class="flex-1 border border-theme rounded-lg px-4 py-2 focus:ring-2 focus:ring-linkedin focus:border-transparent resize-none"
                       @keydown="handleKeyDown"
                     />
                     <button
@@ -605,7 +605,7 @@ const formatScheduledTime = (dateString) => {
                         'p-2 rounded-lg border',
                         showScheduler
                           ? 'bg-amber-100 border-amber-300 text-amber-600'
-                          : 'border-gray-300 text-gray-500 hover:bg-gray-100'
+                          : 'border-theme text-theme-muted hover:bg-theme-overlay'
                       ]"
                       title="Schedule message"
                       @click="showScheduler = !showScheduler"
@@ -625,19 +625,19 @@ const formatScheduledTime = (dateString) => {
                       </svg>
                     </Button>
                   </div>
-                  <p class="text-xs text-gray-400 mt-2">
+                  <p class="text-xs text-theme-muted mt-2">
                     Press Enter to send, Shift+Enter for new line.
                   </p>
                 </form>
               </div>
             </template>
 
-            <div v-else class="flex items-center justify-center h-full text-gray-500">
+            <div v-else class="flex items-center justify-center h-full text-theme-muted">
               Conversation not found
             </div>
           </template>
 
-          <div v-else class="flex items-center justify-center h-full text-gray-500">
+          <div v-else class="flex items-center justify-center h-full text-theme-muted">
             <div class="text-center">
               <svg class="w-5 h-5 mx-auto" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4" />

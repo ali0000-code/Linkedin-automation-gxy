@@ -1,3 +1,4 @@
+import { unref } from 'vue';
 /**
  * @file useTags.js - Vue Query composables for tag CRUD
  *
@@ -32,7 +33,7 @@ export const useTags = () => {
 export const useTag = (id) => {
   return useQuery({
     queryKey: ['tag', id],
-    queryFn: () => tagService.getTag(id),
+    queryFn: () => tagService.getTag(unref(id)),
     enabled: !!id,
   });
 };

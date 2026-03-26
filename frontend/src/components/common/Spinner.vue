@@ -1,25 +1,36 @@
 <template>
   <div :class="['flex items-center justify-center', $attrs.class]">
-    <div
-      :class="[
-        'animate-spin rounded-full border-b-2 border-linkedin',
-        sizeStyles[size]
-      ]"
-    ></div>
+    <div :class="['spinner', sizeStyles[size]]">
+      <div class="spinner-ring" />
+    </div>
   </div>
 </template>
 
 <script setup>
 defineProps({
-  size: {
-    type: String,
-    default: 'md'
-  }
+  size: { type: String, default: 'md' }
 })
 
 const sizeStyles = {
-  sm: 'h-4 w-4',
-  md: 'h-8 w-8',
-  lg: 'h-12 w-12',
+  sm: 'w-4 h-4',
+  md: 'w-8 h-8',
+  lg: 'w-12 h-12',
 }
 </script>
+
+<style scoped>
+.spinner {
+  position: relative;
+}
+.spinner-ring {
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  border: 2.5px solid var(--border);
+  border-top-color: #0077b5;
+  animation: spin 0.7s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+}
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+</style>

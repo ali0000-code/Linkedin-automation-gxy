@@ -9,7 +9,7 @@
     <form @submit.prevent="handleSubmit" class="space-y-4">
       <!-- Template Name -->
       <div>
-        <label for="name" class="block text-sm font-medium text-gray-700 mb-1">
+        <label for="name" class="block text-sm font-medium text-theme-secondary mb-1">
           Template Name <span class="text-red-500">*</span>
         </label>
         <input
@@ -20,7 +20,7 @@
           @input="handleChange('name', $event.target.value)"
           :class="[
             'w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-linkedin',
-            errors.name ? 'border-red-500' : 'border-gray-300'
+            errors.name ? 'border-red-500' : 'border-theme'
           ]"
           placeholder="e.g., Tech Startup Outreach"
         />
@@ -29,7 +29,7 @@
 
       <!-- Email Subject (only for email type) -->
       <div v-if="template?.type === 'email'">
-        <label for="subject" class="block text-sm font-medium text-gray-700 mb-1">
+        <label for="subject" class="block text-sm font-medium text-theme-secondary mb-1">
           Email Subject <span class="text-red-500">*</span>
         </label>
         <input
@@ -41,7 +41,7 @@
           @input="handleChange('subject', $event.target.value)"
           :class="[
             'w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-linkedin',
-            errors.subject ? 'border-red-500' : 'border-gray-300'
+            errors.subject ? 'border-red-500' : 'border-theme'
           ]"
           placeholder="e.g., Quick question about your work"
         />
@@ -64,7 +64,7 @@
 
       <!-- Message Content -->
       <div>
-        <label for="content" class="block text-sm font-medium text-gray-700 mb-1">
+        <label for="content" class="block text-sm font-medium text-theme-secondary mb-1">
           {{ template?.type === 'email' ? 'Email Body' : 'Message Content' }} <span class="text-red-500">*</span>
         </label>
         <textarea
@@ -77,7 +77,7 @@
           :maxlength="maxLength"
           :class="[
             'w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-linkedin resize-none',
-            errors.content ? 'border-red-500' : 'border-gray-300'
+            errors.content ? 'border-red-500' : 'border-theme'
           ]"
           :placeholder="placeholder"
         />
@@ -85,15 +85,15 @@
           <div>
             <p v-if="errors.content" class="text-red-500 text-sm">{{ errors.content }}</p>
           </div>
-          <p :class="['text-sm', currentLength > maxLength ? 'text-red-500' : 'text-gray-500']">
+          <p :class="['text-sm', currentLength > maxLength ? 'text-red-500' : 'text-theme-muted']">
             {{ currentLength }} / {{ maxLength }}
           </p>
         </div>
       </div>
 
       <!-- Personalization Variables Help -->
-      <div class="bg-gray-50 p-3 rounded-lg">
-        <p class="text-xs text-gray-600 font-medium mb-2">Available Variables (click to insert):</p>
+      <div class="bg-theme-overlay p-3 rounded-lg">
+        <p class="text-xs text-theme-secondary font-medium mb-2">Available Variables (click to insert):</p>
         <div class="flex flex-wrap gap-2">
           <button
             v-for="variable in availableVariables"

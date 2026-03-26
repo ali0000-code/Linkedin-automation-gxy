@@ -5,8 +5,8 @@
 
   <div v-else class="space-y-6">
     <div>
-      <h2 class="text-xl font-bold text-gray-900 mb-2">Select Action Type</h2>
-      <p class="text-sm text-gray-600">Choose what action to perform on LinkedIn</p>
+      <h2 class="text-xl font-bold text-theme-primary mb-2">Select Action Type</h2>
+      <p class="text-sm text-theme-secondary">Choose what action to perform on LinkedIn</p>
     </div>
 
     <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -18,20 +18,20 @@
           'p-6 border-2 rounded-lg cursor-pointer transition-all',
           campaignData.selectedAction === action.id
             ? 'border-linkedin bg-blue-50'
-            : 'border-gray-200 hover:border-gray-300'
+            : 'border-theme hover:border-theme'
         ]"
       >
         <div class="flex items-start space-x-4">
           <div
             :class="[
               'w-12 h-12 rounded-lg flex items-center justify-center',
-              campaignData.selectedAction === action.id ? 'bg-linkedin' : 'bg-gray-100'
+              campaignData.selectedAction === action.id ? 'bg-linkedin' : 'bg-theme-overlay'
             ]"
           >
             <svg
               :class="[
                 'w-6 h-6',
-                campaignData.selectedAction === action.id ? 'text-white' : 'text-gray-600'
+                campaignData.selectedAction === action.id ? 'text-white' : 'text-theme-secondary'
               ]"
               fill="none"
               viewBox="0 0 24 24"
@@ -89,8 +89,8 @@
             </svg>
           </div>
           <div class="flex-1">
-            <h3 class="text-lg font-semibold text-gray-900 mb-1">{{ action.name }}</h3>
-            <p class="text-sm text-gray-600">{{ action.description }}</p>
+            <h3 class="text-lg font-semibold text-theme-primary mb-1">{{ action.name }}</h3>
+            <p class="text-sm text-theme-secondary">{{ action.description }}</p>
           </div>
         </div>
       </div>

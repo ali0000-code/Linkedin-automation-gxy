@@ -137,13 +137,13 @@ const handleDisconnect = async () => {
     <div v-else class="max-w-4xl mx-auto">
       <!-- Page Header -->
       <div class="mb-8">
-        <h1 class="text-2xl font-bold text-gray-900">Settings</h1>
-        <p class="text-gray-600 mt-1">Manage your account settings and integrations.</p>
+        <h1 class="text-2xl font-bold text-theme-primary">Settings</h1>
+        <p class="text-theme-secondary mt-1">Manage your account settings and integrations.</p>
       </div>
 
       <!-- Gmail Settings Card -->
-      <div class="bg-white rounded-lg shadow-sm border border-gray-200">
-        <div class="p-6 border-b border-gray-200">
+      <div class="bg-theme-raised rounded-lg shadow-sm border border-theme">
+        <div class="p-6 border-b border-theme">
           <div class="flex items-center space-x-3">
             <div class="w-10 h-10 bg-red-100 rounded-lg flex items-center justify-center">
               <svg class="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -151,8 +151,8 @@ const handleDisconnect = async () => {
               </svg>
             </div>
             <div>
-              <h2 class="text-lg font-semibold text-gray-900">Gmail Integration</h2>
-              <p class="text-sm text-gray-500">Connect your Gmail account to send emails to prospects.</p>
+              <h2 class="text-lg font-semibold text-theme-primary">Gmail Integration</h2>
+              <p class="text-sm text-theme-muted">Connect your Gmail account to send emails to prospects.</p>
             </div>
             <div v-if="settings?.connected" class="ml-auto flex items-center space-x-2">
               <template v-if="settings.is_verified">
@@ -230,7 +230,7 @@ const handleDisconnect = async () => {
               />
               <button
                 type="button"
-                class="absolute right-3 top-9 text-gray-500 hover:text-gray-700"
+                class="absolute right-3 top-9 text-theme-muted hover:text-theme-secondary"
                 @click="showPassword = !showPassword"
               >
                 {{ showPassword ? 'Hide' : 'Show' }}
@@ -245,18 +245,18 @@ const handleDisconnect = async () => {
           <div v-else class="space-y-4">
             <!-- Connected Email -->
             <div>
-              <label class="block text-sm font-medium text-gray-700 mb-1">Connected Email</label>
+              <label class="block text-sm font-medium text-theme-secondary mb-1">Connected Email</label>
               <div class="flex items-center space-x-2">
-                <span class="text-gray-900 bg-gray-100 px-3 py-2 rounded-lg">{{ settings.email }}</span>
-                <span v-if="settings.last_verified_at" class="text-xs text-gray-500">
+                <span class="text-theme-primary bg-theme-overlay px-3 py-2 rounded-lg">{{ settings.email }}</span>
+                <span v-if="settings.last_verified_at" class="text-xs text-theme-muted">
                   Last verified: {{ new Date(settings.last_verified_at).toLocaleDateString() }}
                 </span>
               </div>
             </div>
 
             <!-- Update Password Form -->
-            <form class="pt-4 border-t border-gray-200" @submit.prevent="handleSubmit">
-              <h4 class="font-medium text-gray-900 mb-3">Update App Password</h4>
+            <form class="pt-4 border-t border-theme" @submit.prevent="handleSubmit">
+              <h4 class="font-medium text-theme-primary mb-3">Update App Password</h4>
               <div class="flex space-x-3">
                 <div class="flex-1 relative">
                   <Input
@@ -267,7 +267,7 @@ const handleDisconnect = async () => {
                   />
                   <button
                     type="button"
-                    class="absolute right-3 top-3 text-gray-500 hover:text-gray-700 text-sm"
+                    class="absolute right-3 top-3 text-theme-muted hover:text-theme-secondary text-sm"
                     @click="showPassword = !showPassword"
                   >
                     {{ showPassword ? 'Hide' : 'Show' }}
@@ -305,8 +305,8 @@ const handleDisconnect = async () => {
       </div>
 
       <!-- Extension Auth Key Card -->
-      <div class="bg-white rounded-lg shadow-sm border border-gray-200 mt-6">
-        <div class="p-6 border-b border-gray-200">
+      <div class="bg-theme-raised rounded-lg shadow-sm border border-theme mt-6">
+        <div class="p-6 border-b border-theme">
           <div class="flex items-center space-x-3">
             <div class="w-10 h-10 bg-blue-100 rounded-lg flex items-center justify-center text-blue-600">
               <svg class="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -314,8 +314,8 @@ const handleDisconnect = async () => {
               </svg>
             </div>
             <div>
-              <h2 class="text-lg font-semibold text-gray-900">Extension Auth Key</h2>
-              <p class="text-sm text-gray-500">Use this key to connect the Chrome extension to your account.</p>
+              <h2 class="text-lg font-semibold text-theme-primary">Extension Auth Key</h2>
+              <p class="text-sm text-theme-muted">Use this key to connect the Chrome extension to your account.</p>
             </div>
           </div>
         </div>
@@ -336,19 +336,19 @@ const handleDisconnect = async () => {
 
           <div v-else class="space-y-4">
             <div>
-              <label class="block text-sm font-medium text-gray-700 mb-2">Your Auth Key</label>
+              <label class="block text-sm font-medium text-theme-secondary mb-2">Your Auth Key</label>
               <div class="flex items-center space-x-2">
-                <code class="flex-1 bg-gray-100 px-4 py-3 rounded-lg font-mono text-sm tracking-wider select-all">
+                <code class="flex-1 bg-theme-overlay px-4 py-3 rounded-lg font-mono text-sm tracking-wider select-all">
                   {{ authKeyVisible ? authKey : '••••••••••••••••••••••' }}
                 </code>
                 <button
-                  class="px-3 py-3 text-sm text-gray-600 hover:text-gray-900 border border-gray-300 rounded-lg hover:bg-gray-50"
+                  class="px-3 py-3 text-sm text-theme-secondary hover:text-theme-primary border border-theme rounded-lg hover:bg-theme-overlay"
                   @click="authKeyVisible = !authKeyVisible"
                 >
                   {{ authKeyVisible ? 'Hide' : 'Show' }}
                 </button>
                 <button
-                  class="px-3 py-3 text-sm text-gray-600 hover:text-gray-900 border border-gray-300 rounded-lg hover:bg-gray-50 flex items-center space-x-1"
+                  class="px-3 py-3 text-sm text-theme-secondary hover:text-theme-primary border border-theme rounded-lg hover:bg-theme-overlay flex items-center space-x-1"
                   @click="handleCopyAuthKey"
                 >
                   <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -359,7 +359,7 @@ const handleDisconnect = async () => {
               </div>
             </div>
 
-            <div class="pt-4 border-t border-gray-200">
+            <div class="pt-4 border-t border-theme">
               <button
                 class="flex items-center space-x-2 text-sm text-red-600 hover:text-red-800 disabled:opacity-50"
                 :disabled="authKeyRegenerating"
@@ -370,7 +370,7 @@ const handleDisconnect = async () => {
                 </svg>
                 <span>{{ authKeyRegenerating ? 'Regenerating...' : 'Regenerate Auth Key' }}</span>
               </button>
-              <p class="text-xs text-gray-500 mt-1">
+              <p class="text-xs text-theme-muted mt-1">
                 This will disconnect any extensions using the current key.
               </p>
             </div>

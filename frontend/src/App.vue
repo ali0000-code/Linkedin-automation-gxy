@@ -9,9 +9,11 @@
 <script setup>
 import { onMounted, ref, watch, provide } from 'vue'
 import { useAuthStore } from './stores/auth'
+import { useThemeStore } from './stores/theme'
 import { useExtension } from './composables/useExtension'
 
 const auth = useAuthStore()
+const theme = useThemeStore() // Initializes dark class on <html>
 const verifiedToken = ref(null)
 const extension = useExtension()
 

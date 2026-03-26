@@ -1,5 +1,5 @@
 <template>
-  <div class="bg-white rounded-lg shadow p-4 mb-6">
+  <div class="bg-theme-raised rounded-lg shadow p-4 mb-6">
     <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
       <!-- Search Input -->
       <div class="md:col-span-2">
@@ -14,7 +14,7 @@
       <!-- Connection Status Filter -->
       <div>
         <select
-          class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-linkedin focus:border-linkedin"
+          class="w-full px-3 py-2 border border-theme rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-linkedin focus:border-linkedin"
           :value="filters.connection_status || ''"
           @change="onFilterChange('connection_status', $event.target.value)"
         >
@@ -32,7 +32,7 @@
       <!-- Tag Filter -->
       <div>
         <select
-          class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-linkedin focus:border-linkedin"
+          class="w-full px-3 py-2 border border-theme rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-linkedin focus:border-linkedin"
           :value="filters.tag_id || ''"
           @change="onFilterChange('tag_id', $event.target.value)"
         >

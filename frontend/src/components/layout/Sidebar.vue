@@ -1,40 +1,47 @@
 <template>
-  <div class="flex flex-col h-screen bg-gray-900 text-white w-64 fixed left-0 top-0">
+  <div
+    class="flex flex-col h-screen w-[16.5rem] fixed left-0 top-0 z-40 transition-colors duration-300"
+    :class="themeStore.isDark ? 'text-white' : 'text-gray-700'"
+    :style="themeStore.isDark
+      ? 'background: linear-gradient(180deg, #0c1222 0%, #111827 100%)'
+      : 'background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%); border-right: 1px solid #e2e8f0;'"
+  >
     <!-- Logo -->
-    <div class="flex items-center justify-center h-16 border-b border-gray-800">
-      <div class="flex items-center space-x-2">
-        <div class="w-8 h-8 bg-linkedin rounded-lg flex items-center justify-center">
-          <span class="text-white font-bold text-lg">L</span>
+    <div
+      class="flex items-center h-16 px-5"
+      :style="themeStore.isDark ? 'border-bottom: 1px solid rgba(255,255,255,0.06)' : 'border-bottom: 1px solid #e2e8f0'"
+    >
+      <div class="flex items-center space-x-3">
+        <div class="w-8 h-8 bg-linkedin rounded-lg flex items-center justify-center shadow-lg" style="box-shadow: 0 0 16px rgba(0,119,181,0.3);">
+          <span class="text-white font-bold text-sm">LA</span>
         </div>
-        <span class="text-xl font-bold">LinkedIn Auto</span>
+        <span class="text-base font-semibold tracking-tight" :class="themeStore.isDark ? 'text-white/90' : 'text-gray-900'">LinkedIn Auto</span>
       </div>
     </div>
 
     <!-- Navigation Menu -->
-    <nav class="flex-1 px-4 py-6 space-y-1 overflow-y-auto">
+    <nav class="flex-1 px-3 py-4 space-y-0.5 overflow-y-auto sidebar-scroll">
+      <p class="text-[10px] font-semibold uppercase tracking-widest px-3 mb-2" :class="themeStore.isDark ? 'text-white/25' : 'text-gray-400'">Navigation</p>
       <div v-for="item in menuItems" :key="item.name">
         <!-- Main Menu Item with sub-items -->
         <button
           v-if="hasSubItems(item)"
           @click="!item.comingSoon && toggleExpand(item.name)"
           :class="[
-            'w-full flex items-center justify-between px-4 py-3 rounded-lg transition-colors',
-            isSubItemActive(item)
-              ? 'bg-linkedin/20 text-white'
-              : 'text-gray-300 hover:bg-gray-800 hover:text-white',
-            item.comingSoon ? 'cursor-not-allowed opacity-60' : ''
+            'nav-item w-full justify-between',
+            isSubItemActive(item) ? 'nav-item-active' : '',
+            item.comingSoon ? 'cursor-not-allowed opacity-40' : ''
           ]"
           :disabled="item.comingSoon"
         >
           <div class="flex items-center space-x-3">
             <component :is="item.icon" />
-            <span class="font-medium">{{ item.name }}</span>
+            <span>{{ item.name }}</span>
           </div>
           <div class="flex items-center space-x-2">
-            <span v-if="item.comingSoon" class="text-xs bg-gray-700 px-2 py-1 rounded">Soon</span>
-            <div v-if="!item.comingSoon" class="transition-transform">
-              <ChevronDownIcon v-if="isExpanded(item.name)" />
-              <ChevronRightIcon v-else />
+            <span v-if="item.comingSoon" class="text-[10px] bg-white/10 px-1.5 py-0.5 rounded">Soon</span>
+            <div v-if="!item.comingSoon" class="transition-transform duration-200" :class="isExpanded(item.name) ? 'rotate-0' : '-rotate-90'">
+              <ChevronDownIcon />
             </div>
           </div>
         </button>
@@ -50,31 +57,27 @@
             @click="item.comingSoon ? $event.preventDefault() : navigate($event)"
             :href="item.path"
             :class="[
-              'flex items-center justify-between px-4 py-3 rounded-lg transition-colors',
-              isActive
-                ? 'bg-linkedin text-white'
-                : 'text-gray-300 hover:bg-gray-800 hover:text-white',
-              item.comingSoon ? 'cursor-not-allowed opacity-60' : ''
+              'nav-item justify-between',
+              isActive ? 'nav-item-active' : '',
+              item.comingSoon ? 'cursor-not-allowed opacity-40' : ''
             ]"
           >
             <div class="flex items-center space-x-3">
               <div class="relative">
                 <component :is="item.icon" />
-                <!-- Unread badge for Inbox -->
                 <span
                   v-if="item.name === 'Inbox' && unreadCount > 0"
-                  class="absolute -top-1 -right-1 bg-red-500 text-white text-xs font-bold rounded-full w-4 h-4 flex items-center justify-center"
+                  class="absolute -top-1.5 -right-1.5 bg-red-500 text-white badge-count text-[10px]"
                 >
                   {{ unreadCount > 9 ? '9+' : unreadCount }}
                 </span>
               </div>
-              <span class="font-medium">{{ item.name }}</span>
+              <span>{{ item.name }}</span>
             </div>
-            <span v-if="item.comingSoon" class="text-xs bg-gray-700 px-2 py-1 rounded">Soon</span>
-            <!-- Also show count next to Inbox text -->
+            <span v-if="item.comingSoon" class="text-[10px] bg-white/10 px-1.5 py-0.5 rounded">Soon</span>
             <span
               v-if="item.name === 'Inbox' && unreadCount > 0"
-              class="bg-red-500 text-white text-xs font-bold px-2 py-0.5 rounded-full"
+              class="bg-red-500/90 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full"
             >
               {{ unreadCount }}
             </span>
@@ -84,7 +87,8 @@
         <!-- Sub Items -->
         <div
           v-if="hasSubItems(item) && isExpanded(item.name) && !item.comingSoon"
-          class="ml-4 mt-1 space-y-1"
+          class="ml-3 mt-0.5 space-y-0.5 pl-4"
+          style="border-left: 1px solid rgba(255,255,255,0.06);"
         >
           <router-link
             v-for="subItem in item.subItems"
@@ -97,34 +101,77 @@
               @click="navigate($event)"
               :href="subItem.path"
               :class="[
-                'flex items-center px-4 py-2 rounded-lg transition-colors text-sm',
+                'flex items-center px-3 py-2 rounded-md transition-all duration-200 text-[13px]',
                 isActive
-                  ? 'bg-linkedin text-white'
-                  : 'text-gray-400 hover:bg-gray-800 hover:text-white'
+                  ? 'text-white bg-white/10'
+                  : 'text-white/40 hover:text-white/80 hover:bg-white/5'
               ]"
             >
-              <span class="ml-6">{{ subItem.name }}</span>
+              <span>{{ subItem.name }}</span>
             </a>
           </router-link>
         </div>
       </div>
     </nav>
 
-    <!-- User Profile Section -->
-    <div class="border-t border-gray-800 p-4">
-      <div class="flex items-center space-x-3 mb-3">
-        <img v-if="auth.user?.profile_image_url" :src="auth.user.profile_image_url" :alt="auth.user.name" class="w-10 h-10 rounded-full" />
-        <div v-else class="w-10 h-10 bg-gray-700 rounded-full flex items-center justify-center">
-          <span class="text-sm font-medium">{{ auth.user?.name?.[0]?.toUpperCase() || 'U' }}</span>
-        </div>
-        <div class="flex-1 min-w-0">
-          <p class="text-sm font-medium truncate">{{ auth.user?.name || 'User' }}</p>
-          <p class="text-xs text-gray-400 truncate">{{ auth.user?.email }}</p>
-        </div>
+    <!-- Theme Toggle + User Profile -->
+    <div class="px-3 mb-3 space-y-2">
+      <!-- Theme Toggle Switch -->
+      <div class="flex items-center justify-between px-3 py-2">
+        <span class="flex items-center space-x-2 text-[12px]" :class="themeStore.isDark ? 'text-white/40' : 'text-gray-400'">
+          <svg v-if="themeStore.isDark" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z" />
+          </svg>
+          <svg v-else class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z" />
+          </svg>
+          <span>{{ themeStore.isDark ? 'Dark' : 'Light' }}</span>
+        </span>
+        <button
+          @click="themeStore.toggle()"
+          class="relative inline-flex h-5 w-9 items-center rounded-full transition-colors duration-300 focus:outline-none"
+          :class="themeStore.isDark ? 'bg-linkedin' : 'bg-gray-300'"
+        >
+          <span
+            class="inline-block h-3.5 w-3.5 transform rounded-full bg-white shadow-sm transition-transform duration-300"
+            :class="themeStore.isDark ? 'translate-x-4' : 'translate-x-0.5'"
+          />
+        </button>
       </div>
-      <button @click="handleLogout" class="w-full text-left text-sm text-gray-400 hover:text-white px-2 py-1 rounded hover:bg-gray-800">
-        Logout
-      </button>
+
+      <!-- User Profile -->
+      <div
+        class="p-3 rounded-lg transition-colors duration-300"
+        :style="themeStore.isDark
+          ? 'background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.06);'
+          : 'background: rgba(0,0,0,0.02); border: 1px solid #e2e8f0;'"
+      >
+        <div class="flex items-center space-x-3">
+          <img
+            v-if="auth.user?.profile_image_url"
+            :src="auth.user.profile_image_url"
+            :alt="auth.user.name"
+            class="w-9 h-9 rounded-full ring-2"
+            :class="themeStore.isDark ? 'ring-white/10' : 'ring-gray-200'"
+          />
+          <div v-else class="w-9 h-9 rounded-full flex items-center justify-center text-sm font-medium text-white" style="background: linear-gradient(135deg, #0077b5, #00a0dc);">
+            {{ auth.user?.name?.[0]?.toUpperCase() || 'U' }}
+          </div>
+          <div class="flex-1 min-w-0">
+            <p class="text-[13px] font-medium truncate" :class="themeStore.isDark ? 'text-white/90' : 'text-gray-900'">{{ auth.user?.name || 'User' }}</p>
+            <p class="text-[11px] truncate" :class="themeStore.isDark ? 'text-white/35' : 'text-gray-400'">{{ auth.user?.email }}</p>
+          </div>
+        </div>
+        <button
+          @click="handleLogout"
+          class="w-full text-left text-[12px] px-2 py-1.5 mt-2 rounded-md transition-all duration-200"
+          :class="themeStore.isDark
+            ? 'text-white/30 hover:text-white/70 hover:bg-white/5'
+            : 'text-gray-400 hover:text-gray-700 hover:bg-gray-100'"
+        >
+          Sign out
+        </button>
+      </div>
     </div>
   </div>
 </template>
@@ -134,6 +181,7 @@ import { ref, computed, inject, onMounted, onUnmounted, h } from 'vue'
 import { useRoute } from 'vue-router'
 import { useQueryClient, useQuery } from '@tanstack/vue-query'
 import { useAuthStore } from '../../stores/auth'
+import { useThemeStore } from '../../stores/theme'
 import { useRouter } from 'vue-router'
 import inboxService from '../../services/inbox.service'
 
@@ -141,6 +189,7 @@ const route = useRoute()
 const router = useRouter()
 const queryClient = useQueryClient()
 const auth = useAuthStore()
+const themeStore = useThemeStore()
 
 const handleLogout = async () => {
   try {
@@ -256,18 +305,19 @@ const ChevronRightIcon = {
   }
 }
 
+const TemplateIcon = {
+  render() {
+    return h('svg', { class: 'w-5 h-5', fill: 'none', viewBox: '0 0 24 24', stroke: 'currentColor' }, [
+      h('path', { 'stroke-linecap': 'round', 'stroke-linejoin': 'round', 'stroke-width': '2', d: 'M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z' })
+    ])
+  }
+}
+
 const menuItems = [
   { name: 'Home', path: '/dashboard', icon: HomeIcon, comingSoon: false },
   { name: 'Prospects', path: '/prospects', icon: UsersIcon, comingSoon: false },
-  {
-    name: 'Campaign',
-    icon: CampaignIcon,
-    comingSoon: false,
-    subItems: [
-      { name: 'Campaigns List', path: '/campaign/list' },
-      { name: 'Message Templates', path: '/campaign/templates' }
-    ]
-  },
+  { name: 'Campaigns', path: '/campaigns', icon: CampaignIcon, comingSoon: false },
+  { name: 'Templates', path: '/templates', icon: TemplateIcon, comingSoon: false },
   { name: 'Mail', path: '/mail', icon: MailIcon, comingSoon: false },
   { name: 'Inbox', path: '/inbox', icon: InboxIcon, comingSoon: false },
   { name: 'Settings', path: '/settings', icon: SettingsIcon, comingSoon: false },

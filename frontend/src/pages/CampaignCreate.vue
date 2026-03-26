@@ -15,8 +15,8 @@ import CampaignWizard from '../components/campaigns/CampaignWizard.vue'
     <div class="space-y-6">
       <!-- Page Header -->
       <div>
-        <h1 class="text-2xl font-bold text-gray-900">Create New Campaign</h1>
-        <p class="text-sm text-gray-600 mt-1">
+        <h1 class="text-2xl font-bold text-theme-primary">Create New Campaign</h1>
+        <p class="text-sm text-theme-secondary mt-1">
           Follow the steps to create your LinkedIn outreach campaign
         </p>
       </div>
