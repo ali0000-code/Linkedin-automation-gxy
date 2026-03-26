@@ -330,6 +330,32 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         .catch(error => sendResponse({ error: error.message, status: error.status || 0 }));
       return true; // Async response
 
+    case 'AUTH_KEY_LOGIN':
+      // Auth key login from popup or options page
+      handleAuthKeyLogin(message.auth_key)
+        .then((result) => {
+          sendResponse(result);
+          if (result.success) {
+            chrome.runtime.sendMessage({ type: 'AUTH_STATE_CHANGED', authenticated: true }).catch(() => {});
+          }
+        })
+        .catch((error) => {
+          sendResponse({ success: false, error: error.message });
+        });
+      return true; // Async response
+
+    case 'LOGOUT':
+      // Logout from popup
+      handleLogout()
+        .then(() => {
+          sendResponse({ success: true });
+          chrome.runtime.sendMessage({ type: 'AUTH_STATE_CHANGED', authenticated: false }).catch(() => {});
+        })
+        .catch((error) => {
+          sendResponse({ success: false, error: error.message });
+        });
+      return true; // Async response
+
     default:
       console.log('[Background] Unknown message type:', message.type);
   }

@@ -29,7 +29,7 @@ return [
     // chrome-extension://<extension-id>. Set EXTENSION_CORS_PATTERN in .env
     // to restrict to your specific extension ID in production.
     'allowed_origins_patterns' => [
-        env('EXTENSION_CORS_PATTERN', 'chrome-extension://.*'),
+        '#' . env('EXTENSION_CORS_PATTERN', 'chrome-extension://.*') . '#',
     ],
 
     // Minimal required headers. Authorization carries the Sanctum bearer token.
