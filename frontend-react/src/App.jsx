@@ -1,13 +1,21 @@
 /**
- * Main App Component
+ * @file App.jsx - Root application component
  *
- * Sets up React Query, routing, and protected routes.
+ * Bootstraps the entire frontend application:
+ * - Configures TanStack React Query with global defaults for caching, retries, and stale times
+ * - Wraps the app in ExtensionProvider so all components share a single Chrome extension PING
+ * - Provides protected (auth-required) and public (guest-only) route guards
+ * - Verifies the auth token on mount and syncs it with the Chrome extension
+ *
+ * The token verification uses a ref guard (verifiedTokenRef) so the /user fetch
+ * only fires once per unique token value, avoiding redundant network calls on re-renders.
  */
 
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { useAuthStore } from './store/authStore';
+import { ExtensionProvider } from './hooks/useExtension';
 
 // Pages
 import Login from './pages/Login';
@@ -24,13 +32,28 @@ import Dashboard from './pages/Dashboard';
 import ComingSoon from './pages/ComingSoon';
 import NotFound from './pages/NotFound';
 
-// Create React Query client
+/**
+ * Global React Query client configuration.
+ *
+ * Query defaults:
+ * - refetchOnWindowFocus disabled: prevents surprise refetches when user Alt-Tabs back
+ * - retry: 2 with exponential backoff (1s, 2s, capped at 10s) to handle transient failures
+ * - staleTime: 30s -- data is considered fresh for 30 seconds before background refetch
+ *
+ * Mutation defaults:
+ * - retry: 0 -- mutations are side-effects (create/update/delete) and should NOT be retried
+ *   automatically, since retrying could cause duplicate actions (e.g. double-send a message)
+ */
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
       refetchOnWindowFocus: false,
-      retry: 1,
-      staleTime: 30000, // 30 seconds
+      retry: 2,
+      retryDelay: (attemptIndex) => Math.min(1000 * 2 ** attemptIndex, 10000),
+      staleTime: 30000,
+    },
+    mutations: {
+      retry: 0,
     },
   },
 });
@@ -67,64 +90,46 @@ const PublicRoute = ({ children }) => {
  * Main App Component
  */
 function App() {
-  const { token, setUser, clearAuth, syncWithExtension } = useAuthStore();
+  const { token, setUser, clearAuth } = useAuthStore();
 
-  // Verify token and refresh user data on app mount
+  /**
+   * Ref guard: stores the last token we verified against the /user endpoint.
+   * This prevents re-verification on every render when the token hasn't actually changed.
+   * Without this, React strict mode double-renders and HMR would trigger duplicate API calls.
+   */
+  const verifiedTokenRef = useRef(null);
+
+  // Verify token and refresh user data -- only once per token value
   useEffect(() => {
-    const verifyAuth = async () => {
-      if (token) {
-        try {
-          console.log('[App] Verifying auth and fetching fresh user data...');
-          // Fetch fresh user data with the stored token
-          const response = await fetch(`${import.meta.env.VITE_API_BASE_URL}/user`, {
-            headers: {
-              'Authorization': `Bearer ${token}`,
-              'Accept': 'application/json',
-            },
-          });
+    if (!token || verifiedTokenRef.current === token) return;
+    verifiedTokenRef.current = token;
 
-          if (response.ok) {
-            const userData = await response.json();
-            console.log('[App] Fresh user data fetched:', userData.data);
-            // Update user data in store
-            setUser(userData.data);
-          } else {
-            console.error('[App] Token is invalid, clearing auth');
-            // Token is invalid, clear auth
-            clearAuth();
-          }
-        } catch (error) {
-          console.error('[App] Failed to verify auth:', error);
-          // On network error, keep existing auth state
+    const verifyAuth = async () => {
+      try {
+        const response = await fetch(`${import.meta.env.VITE_API_BASE_URL}/user`, {
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Accept': 'application/json',
+          },
+        });
+
+        if (response.ok) {
+          const userData = await response.json();
+          setUser(userData.data);
+        } else {
+          clearAuth();
         }
+      } catch (error) {
+        console.error('[App] Failed to verify auth:', error);
       }
     };
 
     verifyAuth();
   }, [token]); // Run whenever token changes
 
-  // Sync with extension when it becomes ready
-  useEffect(() => {
-    if (!token) return;
-
-    // Try to sync immediately (extension may already be ready)
-    syncWithExtension();
-
-    // Listen for extension-ready event (fired by webapp-connector.js)
-    const handleExtensionReady = () => {
-      console.log('[App] Extension ready event received, syncing...');
-      syncWithExtension();
-    };
-
-    window.addEventListener('linkedin-automation-extension-ready', handleExtensionReady);
-
-    return () => {
-      window.removeEventListener('linkedin-automation-extension-ready', handleExtensionReady);
-    };
-  }, [token, syncWithExtension]);
-
   return (
     <QueryClientProvider client={queryClient}>
+      <ExtensionProvider>
       <BrowserRouter>
         <Routes>
           {/* Public Routes */}
@@ -222,6 +227,7 @@ function App() {
           <Route path="*" element={<NotFound />} />
         </Routes>
       </BrowserRouter>
+      </ExtensionProvider>
     </QueryClientProvider>
   );
 }

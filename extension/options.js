@@ -7,7 +7,8 @@
 // DOM elements
 let authSection;
 let settingsSection;
-let linkedInLoginBtn;
+let authKeyInput;
+let authKeyLoginBtn;
 let authMessage;
 let logoutBtn;
 let userNameEl;
@@ -31,7 +32,8 @@ document.addEventListener('DOMContentLoaded', async () => {
   // Get DOM elements
   authSection = document.getElementById('auth-section');
   settingsSection = document.getElementById('settings-section');
-  linkedInLoginBtn = document.getElementById('linkedin-login-btn');
+  authKeyInput = document.getElementById('auth-key-input');
+  authKeyLoginBtn = document.getElementById('auth-key-login-btn');
   authMessage = document.getElementById('auth-message');
   logoutBtn = document.getElementById('logout-btn');
   userNameEl = document.getElementById('user-name');
@@ -47,7 +49,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   loadingOverlay = document.getElementById('loading-overlay');
 
   // Set up event listeners
-  linkedInLoginBtn.addEventListener('click', handleLinkedInLogin);
+  authKeyLoginBtn.addEventListener('click', handleAuthKeyLogin);
   logoutBtn.addEventListener('click', handleLogoutClick);
   saveApiUrlBtn.addEventListener('click', handleSaveApiUrl);
   saveLimitBtn.addEventListener('click', handleSaveLimit);
@@ -88,20 +90,45 @@ async function loadSavedSettings() {
 }
 
 /**
- * Handle LinkedIn OAuth login button click
- * Opens the webapp in a new tab for OAuth authentication
+ * Handle auth key login.
+ * Sends auth key to background script which exchanges it for a Sanctum token.
  */
-function handleLinkedInLogin() {
-  console.log('[Options] Opening webapp for LinkedIn OAuth...');
+async function handleAuthKeyLogin() {
+  const authKey = authKeyInput.value.trim();
 
-  // Open webapp login page in new tab
-  chrome.tabs.create({
-    url: 'http://localhost:3000/login',
-    active: true
-  });
+  if (!authKey) {
+    showMessage(authMessage, 'Please enter your auth key.', 'error');
+    return;
+  }
 
-  // Show info message
-  showMessage(authMessage, 'Opening login page... Complete the sign-in and this page will update automatically.', 'info');
+  if (authKey.length !== 22) {
+    showMessage(authMessage, 'Auth key must be exactly 22 characters.', 'error');
+    return;
+  }
+
+  authKeyLoginBtn.disabled = true;
+  authKeyLoginBtn.textContent = 'Connecting...';
+  showMessage(authMessage, 'Verifying auth key...', 'info');
+
+  try {
+    const response = await chrome.runtime.sendMessage({
+      type: 'AUTH_KEY_LOGIN',
+      auth_key: authKey,
+    });
+
+    if (response?.success) {
+      showMessage(authMessage, 'Connected successfully!', 'success');
+      // Reload to show settings section
+      setTimeout(() => window.location.reload(), 500);
+    } else {
+      showMessage(authMessage, response?.error || 'Invalid auth key. Please check and try again.', 'error');
+    }
+  } catch (error) {
+    showMessage(authMessage, 'Connection failed: ' + error.message, 'error');
+  } finally {
+    authKeyLoginBtn.disabled = false;
+    authKeyLoginBtn.textContent = 'Connect';
+  }
 }
 
 /**

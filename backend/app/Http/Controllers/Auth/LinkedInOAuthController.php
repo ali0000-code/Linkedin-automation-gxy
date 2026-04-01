@@ -11,8 +11,30 @@ use Laravel\Socialite\Facades\Socialite;
 /**
  * LinkedInOAuthController
  *
- * Handles LinkedIn OAuth 2.0 authentication flow.
- * Provides redirect to LinkedIn and callback handling.
+ * Handles all authentication flows for the platform:
+ *
+ * 1. LinkedIn OAuth 2.0 (web app login):
+ *    - redirect()  -> sends user to LinkedIn consent screen
+ *    - callback()  -> LinkedIn redirects back with auth code; we exchange it for
+ *      tokens, create/update the User + LinkedInAccount, issue a Sanctum token,
+ *      and redirect to the frontend with the token as a URL fragment
+ *    - getAuthUrl() -> returns the OAuth URL as JSON (for SPA frontend)
+ *
+ * 2. Extension authentication (Chrome extension login):
+ *    - extensionAuth()  -> public endpoint; accepts auth_key, returns Sanctum token
+ *    - The auth_key is a 22-char random string the user copies from web app settings
+ *    - This avoids the extension needing to handle the full OAuth redirect flow
+ *
+ * 3. Auth key management:
+ *    - getAuthKey()        -> returns the user's current auth key
+ *    - regenerateAuthKey() -> generates a new key (invalidates old extension sessions)
+ *
+ * 4. Account verification:
+ *    - verifyLinkedInAccount() -> extension calls this to confirm the LinkedIn account
+ *      the user is logged into matches the one linked in our system
+ *
+ * Device limit: All token creation goes through createTokenWithDeviceLimit() which
+ * enforces max 3 concurrent Sanctum tokens per user.
  */
 class LinkedInOAuthController extends Controller
 {
@@ -56,32 +78,23 @@ class LinkedInOAuthController extends Controller
     public function callback(Request $request)
     {
         try {
-            // Log the callback request for debugging
-            \Log::info('LinkedIn OAuth callback received', [
-                'query_params' => $request->query(),
-                'has_code' => $request->has('code'),
-                'has_state' => $request->has('state'),
-            ]);
-
-            // Get LinkedIn user data via Socialite (uses stateless mode to skip state validation)
-            \Log::info('Attempting to get LinkedIn user via Socialite');
+            // Get LinkedIn user data via Socialite
             $linkedInUser = Socialite::driver('linkedin')->stateless()->user();
 
-            \Log::info('LinkedIn user retrieved', [
-                'id' => $linkedInUser->getId(),
-                'email' => $linkedInUser->getEmail(),
-                'name' => $linkedInUser->getName(),
+            \Log::info('LinkedIn OAuth callback successful', [
+                'linkedin_id' => $linkedInUser->getId(),
             ]);
 
             // Create or update user and LinkedIn account
             $result = $this->oauthService->handleOAuthCallback($linkedInUser);
 
-            // Generate Sanctum API token for the user
-            $token = $result['user']->createToken('oauth-token', ['*'], now()->addDays(30))->plainTextToken;
+            // Ensure user has an auth key for extension authentication
+            $result['user']->ensureAuthKey();
 
-            \Log::info('OAuth callback successful, redirecting with token');
+            // Generate Sanctum API token with 3-device limit
+            $token = $result['user']->createTokenWithDeviceLimit('webapp')->plainTextToken;
 
-            // Redirect to frontend with token as URL fragment (secure, not logged)
+            // Redirect to frontend with token as URL fragment
             // URL-encode the token to handle special characters like |
             $frontendUrl = config('app.frontend_url', env('FRONTEND_URL', 'http://localhost:3000'));
             $encodedToken = urlencode($token);
@@ -190,5 +203,82 @@ class LinkedInOAuthController extends Controller
             ->getTargetUrl();
 
         return response()->json(['url' => $url]);
+    }
+
+    /**
+     * Authenticate extension via auth key.
+     * Public endpoint — validates user by auth_key, returns Sanctum token.
+     *
+     * POST /api/auth/extension
+     */
+    public function extensionAuth(Request $request): JsonResponse
+    {
+        $request->validate([
+            'auth_key' => 'required|string|size:22',
+        ]);
+
+        $user = \App\Models\User::where('auth_key', $request->auth_key)->first();
+
+        if (!$user) {
+            return response()->json([
+                'message' => 'Invalid auth key.',
+            ], 401);
+        }
+
+        if (!$user->is_active) {
+            return response()->json([
+                'message' => 'Account is inactive.',
+            ], 403);
+        }
+
+        // Create token with 3-device limit
+        $token = $user->createTokenWithDeviceLimit('extension')->plainTextToken;
+
+        return response()->json([
+            'token' => $token,
+            'user' => [
+                'id' => $user->id,
+                'name' => $user->name,
+                'email' => $user->email,
+                'profile_image_url' => $user->profile_image_url,
+            ],
+        ]);
+    }
+
+    /**
+     * Get the current user's auth key.
+     *
+     * GET /api/auth/key
+     */
+    public function getAuthKey(Request $request): JsonResponse
+    {
+        $user = $request->user();
+        $authKey = $user->ensureAuthKey();
+
+        return response()->json([
+            'auth_key' => $authKey,
+        ]);
+    }
+
+    /**
+     * Regenerate the user's auth key.
+     * This invalidates any extension using the old key.
+     *
+     * POST /api/auth/key/regenerate
+     */
+    public function regenerateAuthKey(Request $request): JsonResponse
+    {
+        $user = $request->user();
+        $newKey = $user->regenerateAuthKey();
+
+        // Revoke all extension tokens so the old auth key's token stops working immediately.
+        // Keep the current request's token (the webapp session) alive.
+        $currentTokenId = $request->user()->currentAccessToken()->id;
+        $user->tokens()->where('name', 'extension')->delete();
+
+        return response()->json([
+            'auth_key' => $newKey,
+            'message' => 'Auth key regenerated. Update your extension with the new key.',
+        ]);
     }
 }

@@ -2,8 +2,9 @@
 export default {
   content: [
     "./index.html",
-    "./src/**/*.{js,ts,jsx,tsx}",
+    "./src/**/*.{vue,js}",
   ],
+  darkMode: 'class',
   theme: {
     extend: {
       colors: {
@@ -11,7 +12,17 @@ export default {
           DEFAULT: '#0077b5',
           dark: '#005582',
           light: '#00a0dc',
-        }
+        },
+        surface: {
+          DEFAULT: 'var(--surface)',
+          raised: 'var(--surface-raised)',
+          muted: 'var(--surface-muted)',
+          overlay: 'var(--surface-overlay)',
+        },
+        border: {
+          DEFAULT: 'var(--border)',
+          subtle: 'var(--border-subtle)',
+        },
       }
     },
   },

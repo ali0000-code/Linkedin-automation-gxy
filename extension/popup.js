@@ -142,8 +142,75 @@ document.addEventListener('DOMContentLoaded', async () => {
   modalSendLaterBtn = document.getElementById('modal-send-later-btn');
   modalSaveBtn = document.getElementById('modal-save-btn');
 
+  // Set up event listeners - Auth key connect
+  const authKeyConnectBtn = document.getElementById('auth-key-connect-btn');
+  const authKeyInput = document.getElementById('auth-key-input');
+  const authMessage = document.getElementById('auth-message');
+  if (authKeyConnectBtn) {
+    authKeyConnectBtn.addEventListener('click', async () => {
+      const authKey = authKeyInput.value.trim();
+      if (!authKey) {
+        authMessage.textContent = 'Please enter your auth key.';
+        authMessage.className = 'message error';
+        authMessage.classList.remove('hidden');
+        return;
+      }
+      if (authKey.length !== 22) {
+        authMessage.textContent = 'Auth key must be exactly 22 characters.';
+        authMessage.className = 'message error';
+        authMessage.classList.remove('hidden');
+        return;
+      }
+
+      authKeyConnectBtn.disabled = true;
+      authKeyConnectBtn.textContent = 'Connecting...';
+      authMessage.textContent = 'Verifying auth key...';
+      authMessage.className = 'message info';
+      authMessage.classList.remove('hidden');
+
+      try {
+        const response = await chrome.runtime.sendMessage({
+          type: 'AUTH_KEY_LOGIN',
+          auth_key: authKey,
+        });
+
+        if (response?.success) {
+          authMessage.textContent = 'Connected successfully!';
+          authMessage.className = 'message success';
+          setTimeout(() => window.location.reload(), 500);
+        } else {
+          authMessage.textContent = response?.error || 'Invalid auth key. Please check and try again.';
+          authMessage.className = 'message error';
+        }
+      } catch (error) {
+        authMessage.textContent = 'Connection failed: ' + error.message;
+        authMessage.className = 'message error';
+      } finally {
+        authKeyConnectBtn.disabled = false;
+        authKeyConnectBtn.textContent = 'Connect Extension';
+      }
+    });
+  }
+
+  // Set up event listeners - Profile dropdown toggle
+  const profileBtn = document.getElementById('profile-btn');
+  const profileDropdown = document.getElementById('profile-dropdown');
+  if (profileBtn && profileDropdown) {
+    profileBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      profileDropdown.classList.toggle('hidden');
+    });
+    document.addEventListener('click', () => {
+      profileDropdown.classList.add('hidden');
+    });
+    profileDropdown.addEventListener('click', (e) => {
+      e.stopPropagation();
+    });
+  }
+
   // Set up event listeners - Common
-  document.getElementById('open-options').addEventListener('click', openOptions);
+  const openOptionsBtn = document.getElementById('open-options');
+  if (openOptionsBtn) openOptionsBtn.addEventListener('click', openOptions);
   logoutBtn.addEventListener('click', handleLogoutClick);
 
   // Set up event listeners - Tabs
@@ -234,6 +301,8 @@ chrome.runtime.onMessage.addListener((message) => {
 function showLoginPrompt() {
   loginPrompt.classList.remove('hidden');
   loggedInState.classList.add('hidden');
+  const profileWrapper = document.getElementById('profile-menu-wrapper');
+  if (profileWrapper) profileWrapper.classList.add('hidden');
 }
 
 /**
@@ -242,6 +311,8 @@ function showLoginPrompt() {
 async function showLoggedInState() {
   loginPrompt.classList.add('hidden');
   loggedInState.classList.remove('hidden');
+  const profileWrapper = document.getElementById('profile-menu-wrapper');
+  if (profileWrapper) profileWrapper.classList.remove('hidden');
 
   // Display user email
   const email = await getStoredUserEmail();

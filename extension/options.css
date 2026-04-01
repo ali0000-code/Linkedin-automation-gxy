@@ -1,7 +1,8 @@
 /**
- * Options Page Styles
- * Clean, modern design for settings page
+ * Options Page Styles — Light Mode Modern SaaS Design
  */
+
+@import url('https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&display=swap');
 
 * {
   margin: 0;
@@ -10,68 +11,377 @@
 }
 
 body {
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  font-family: 'DM Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   font-size: 14px;
-  color: #333;
-  background-color: #f5f5f5;
+  color: #1e293b;
+  background-color: #f1f5f9;
   min-height: 100vh;
 }
 
 .container {
   max-width: 600px;
   margin: 0 auto;
-  background-color: white;
+  background-color: #ffffff;
   min-height: 100vh;
-  box-shadow: 0 0 20px rgba(0, 0, 0, 0.1);
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.08), 0 0 0 1px rgba(0, 0, 0, 0.03);
   position: relative;
 }
 
-/* Header */
+/* ==================== SCROLLBAR ==================== */
+
+::-webkit-scrollbar {
+  width: 5px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background-color: #d1d5db;
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background-color: #94a3b8;
+}
+
+/* ==================== HEADER ==================== */
+
 .header {
-  background: linear-gradient(135deg, #0077b5 0%, #005582 100%);
-  color: white;
-  padding: 40px 30px;
-  text-align: center;
+  background: #ffffff;
+  border-bottom: 1px solid #e2e8f0;
+  padding: 30px;
+}
+
+.header-brand {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.logo-icon {
+  width: 44px;
+  height: 44px;
+  background: #0077b5;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 16px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  color: #ffffff;
+  flex-shrink: 0;
+}
+
+.header-text {
+  text-align: left;
 }
 
 .header h1 {
-  font-size: 28px;
+  font-size: 22px;
   font-weight: 600;
-  margin-bottom: 8px;
+  margin-bottom: 2px;
+  color: #0f172a;
 }
 
 .subtitle {
-  font-size: 14px;
-  opacity: 0.9;
+  font-size: 13px;
+  color: #94a3b8;
+  font-weight: 400;
 }
 
-/* Content */
+/* ==================== CONTENT ==================== */
+
 .content {
   padding: 30px;
 }
 
-/* Sections */
+/* ==================== SECTIONS ==================== */
+
 .section {
   margin-bottom: 30px;
 }
 
 .section h2 {
-  font-size: 20px;
+  font-size: 18px;
   font-weight: 600;
   margin-bottom: 8px;
-  color: #333;
+  color: #0f172a;
 }
 
 .hidden {
   display: none !important;
 }
 
-/* Tabs */
+/* ==================== INFO TEXT ==================== */
+
+.info-text {
+  font-size: 14px;
+  color: #475569;
+  margin-bottom: 20px;
+  line-height: 1.5;
+}
+
+/* ==================== FORMS ==================== */
+
+.form {
+  max-width: 400px;
+}
+
+.form-group {
+  margin-bottom: 24px;
+}
+
+.label {
+  display: block;
+  font-size: 14px;
+  font-weight: 600;
+  color: #0f172a;
+  margin-bottom: 4px;
+}
+
+.help-text {
+  font-size: 12px;
+  color: #94a3b8;
+  margin-bottom: 10px;
+  line-height: 1.5;
+}
+
+.input {
+  width: 100%;
+  padding: 10px 14px;
+  background: #ffffff;
+  border: 1px solid #d1d5db;
+  border-radius: 8px;
+  font-size: 14px;
+  font-family: 'DM Sans', sans-serif;
+  color: #1e293b;
+  transition: all 200ms ease;
+}
+
+.input::placeholder {
+  color: #94a3b8;
+}
+
+.input:focus {
+  outline: none;
+  border-color: #0077b5;
+  box-shadow: 0 0 0 2px rgba(0, 119, 181, 0.1);
+}
+
+.input-group {
+  display: flex;
+  gap: 10px;
+}
+
+.input-group .input {
+  flex: 1;
+}
+
+.input-group .btn {
+  flex-shrink: 0;
+}
+
+/* ==================== BUTTONS ==================== */
+
+.btn {
+  border: none;
+  border-radius: 8px;
+  padding: 10px 20px;
+  font-family: 'DM Sans', sans-serif;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 200ms ease;
+  text-align: center;
+}
+
+.btn:hover {
+  transform: translateY(-1px);
+}
+
+.btn:active {
+  transform: scale(0.98);
+}
+
+.btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  transform: none !important;
+}
+
+.btn-primary {
+  background-color: #0077b5;
+  color: #ffffff;
+}
+
+.btn-primary:hover {
+  background-color: #005582;
+}
+
+.btn-secondary {
+  background-color: #64748b;
+  color: #ffffff;
+}
+
+.btn-secondary:hover {
+  background-color: #475569;
+}
+
+.btn-link {
+  background: none;
+  color: #0077b5;
+  padding: 4px 8px;
+  font-size: 13px;
+}
+
+.btn-link:hover {
+  background-color: #f0f9ff;
+  transform: none;
+}
+
+/* ==================== MESSAGES ==================== */
+
+.message {
+  padding: 10px 14px;
+  margin-top: 12px;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.message.success {
+  background-color: #ecfdf5;
+  color: #065f46;
+  border: 1px solid #a7f3d0;
+}
+
+.message.error {
+  background-color: #fef2f2;
+  color: #991b1b;
+  border: 1px solid #fecaca;
+}
+
+.message.info {
+  background-color: #eff6ff;
+  color: #1e40af;
+  border: 1px solid #bfdbfe;
+}
+
+/* ==================== OAUTH CONTAINER ==================== */
+
+.oauth-container {
+  margin-top: 8px;
+}
+
+/* ==================== INFO BOX ==================== */
+
+.info-box {
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  padding: 16px 20px;
+  margin-top: 20px;
+}
+
+.info-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: #0f172a;
+  margin-bottom: 8px;
+}
+
+.info-list {
+  margin: 0;
+  padding-left: 18px;
+  font-size: 13px;
+  color: #475569;
+  line-height: 1.9;
+}
+
+/* ==================== LOGGED IN INFO ==================== */
+
+.logged-in-info {
+  background-color: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  padding: 18px;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-bottom: 20px;
+}
+
+.user-avatar-container {
+  flex-shrink: 0;
+}
+
+.user-avatar {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  object-fit: cover;
+  border: 2px solid #e2e8f0;
+}
+
+.user-avatar-placeholder {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: #e2e8f0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #94a3b8;
+}
+
+.user-avatar-placeholder svg {
+  width: 24px;
+  height: 24px;
+}
+
+.user-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.user-name {
+  font-size: 15px;
+  font-weight: 600;
+  color: #0f172a;
+  margin-bottom: 2px;
+}
+
+.user-email {
+  font-size: 13px;
+  color: #475569;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.user-text {
+  font-size: 14px;
+  color: #1e293b;
+}
+
+/* ==================== DIVIDER ==================== */
+
+.divider {
+  border: none;
+  border-top: 1px solid #f1f5f9;
+  margin: 24px 0;
+}
+
+/* ==================== TABS ==================== */
+
 .tabs {
   display: flex;
   gap: 10px;
   margin-bottom: 30px;
-  border-bottom: 2px solid #e0e0e0;
+  border-bottom: 1px solid #e2e8f0;
 }
 
 .tab-btn {
@@ -79,18 +389,19 @@ body {
   padding: 12px 20px;
   background: none;
   border: none;
-  border-bottom: 3px solid transparent;
-  font-size: 15px;
+  border-bottom: 2px solid transparent;
+  font-family: 'DM Sans', sans-serif;
+  font-size: 14px;
   font-weight: 500;
-  color: #666;
+  color: #475569;
   cursor: pointer;
-  transition: all 0.3s ease;
-  margin-bottom: -2px;
+  transition: all 200ms ease;
+  margin-bottom: -1px;
 }
 
 .tab-btn:hover {
   color: #0077b5;
-  background-color: #f5f5f5;
+  background-color: #f8fafc;
 }
 
 .tab-btn.active {
@@ -106,167 +417,19 @@ body {
   display: block;
 }
 
-/* Info text */
-.info-text {
-  font-size: 14px;
-  color: #666;
-  margin-bottom: 20px;
-}
+/* ==================== FOOTER ==================== */
 
-/* Form */
-.form {
-  max-width: 400px;
-}
-
-.form-group {
-  margin-bottom: 20px;
-}
-
-.label {
-  display: block;
-  font-size: 14px;
-  font-weight: 500;
-  color: #333;
-  margin-bottom: 6px;
-}
-
-.help-text {
-  font-size: 12px;
-  color: #999;
-  margin-bottom: 8px;
-}
-
-.input {
-  width: 100%;
-  padding: 10px 12px;
-  border: 1px solid #d0d0d0;
-  border-radius: 4px;
-  font-size: 14px;
-  transition: border-color 0.2s;
-}
-
-.input:focus {
-  outline: none;
-  border-color: #0077b5;
-}
-
-.input-group {
-  display: flex;
-  gap: 8px;
-}
-
-.input-group .input {
-  flex: 1;
-}
-
-.input-group .btn {
-  flex-shrink: 0;
-}
-
-/* Buttons */
-.btn {
-  border: none;
-  border-radius: 4px;
-  padding: 10px 20px;
-  font-size: 14px;
-  font-weight: 500;
-  cursor: pointer;
-  transition: all 0.2s ease;
-  text-align: center;
-}
-
-.btn:hover {
-  transform: translateY(-1px);
-}
-
-.btn:active {
-  transform: translateY(0);
-}
-
-.btn:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
-  transform: none !important;
-}
-
-.btn-primary {
-  background-color: #0077b5;
-  color: white;
-}
-
-.btn-primary:hover {
-  background-color: #005582;
-}
-
-.btn-secondary {
-  background-color: #6c757d;
-  color: white;
-}
-
-.btn-secondary:hover {
-  background-color: #5a6268;
-}
-
-/* Messages */
-.message {
-  padding: 10px 12px;
-  margin-top: 12px;
-  border-radius: 4px;
-  font-size: 13px;
-}
-
-.message.success {
-  background-color: #d4edda;
-  color: #155724;
-  border: 1px solid #c3e6cb;
-}
-
-.message.error {
-  background-color: #f8d7da;
-  color: #721c24;
-  border: 1px solid #f5c6cb;
-}
-
-.message.info {
-  background-color: #d1ecf1;
-  color: #0c5460;
-  border: 1px solid #bee5eb;
-}
-
-/* Logged in info */
-.logged-in-info {
-  background-color: #f3f6f8;
-  padding: 16px;
-  border-radius: 4px;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 20px;
-}
-
-.user-text {
-  font-size: 14px;
-  color: #333;
-}
-
-/* Divider */
-.divider {
-  border: none;
-  border-top: 1px solid #e0e0e0;
-  margin: 24px 0;
-}
-
-/* Footer */
 .footer {
   padding: 20px 30px;
   text-align: center;
-  color: #999;
+  color: #94a3b8;
   font-size: 12px;
-  border-top: 1px solid #e0e0e0;
+  border-top: 1px solid #f1f5f9;
   margin-top: 40px;
 }
 
-/* Loading overlay */
+/* ==================== LOADING OVERLAY ==================== */
+
 .loading-overlay {
   position: absolute;
   top: 0;
@@ -281,12 +444,12 @@ body {
 }
 
 .spinner {
-  border: 4px solid #f3f3f3;
-  border-top: 4px solid #0077b5;
+  border: 3px solid #e2e8f0;
+  border-top: 3px solid #0077b5;
   border-radius: 50%;
-  width: 50px;
-  height: 50px;
-  animation: spin 1s linear infinite;
+  width: 44px;
+  height: 44px;
+  animation: spin 0.8s linear infinite;
 }
 
 @keyframes spin {

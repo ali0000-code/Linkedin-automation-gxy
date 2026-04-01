@@ -54,43 +54,15 @@ export default function LinkedInCallback() {
 
         const userData = await response.json();
 
-        // Store token and user data in Zustand store (this will also store in localStorage)
+        // Store token and user data in Zustand store (persists to localStorage)
         setToken(token);
         setUser(userData.data);
 
-        // Send token to Chrome extension
-        // Try to get extension ID from multiple sources:
-        // 1. Injected by webapp-connector.js (stored in localStorage)
-        // 2. Environment variable (fallback)
-        const extensionId =
-          localStorage.getItem('linkedin_automation_extension_id') ||
-          window.__LINKEDIN_AUTOMATION_EXTENSION_ID__ ||
-          import.meta.env.VITE_EXTENSION_ID;
+        // Extension authenticates separately via auth key (Settings page).
+        // No token is sent to the extension from here.
 
-        if (extensionId && extensionId !== 'your_chrome_extension_id' && typeof chrome !== 'undefined' && chrome.runtime) {
-          try {
-            chrome.runtime.sendMessage(
-              extensionId,
-              {
-                type: 'AUTH_SUCCESS',
-                token: token,
-              },
-              (response) => {
-                if (chrome.runtime.lastError) {
-                  console.warn('Extension not available:', chrome.runtime.lastError.message);
-                } else {
-                  console.log('Token sent to extension successfully');
-                }
-              }
-            );
-          } catch (err) {
-            // Extension not installed or not available, continue anyway
-            console.warn('Could not communicate with extension:', err);
-          }
-        }
-
-        // Redirect to prospects page
-        navigate('/prospects', { replace: true });
+        // Redirect to dashboard
+        navigate('/dashboard', { replace: true });
 
       } catch (err) {
         console.error('OAuth callback error:', err);
