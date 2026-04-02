@@ -78,7 +78,9 @@ const prospects = computed(() => prospectsData.value?.data || [])
 const meta = computed(() => prospectsData.value?.meta || {})
 const tags = computed(() => Array.isArray(tagsData.value) ? tagsData.value : [])
 
-// Accumulate prospects as we load more pages
+// Accumulate prospects as we load more pages.
+// immediate: true ensures cached data from Vue Query populates the list on mount
+// (without it, SPA navigation shows "no prospects" until data changes).
 watch([prospects, () => filters.value.page], ([newProspects, page]) => {
   if (page === 1) {
     accumulatedProspects.value = [...newProspects]
@@ -87,7 +89,7 @@ watch([prospects, () => filters.value.page], ([newProspects, page]) => {
     const unique = newProspects.filter(p => !existingIds.has(p.id))
     accumulatedProspects.value = [...accumulatedProspects.value, ...unique]
   }
-})
+}, { immediate: true })
 
 // ============ PROSPECT HANDLERS ============
 
@@ -150,8 +152,11 @@ const handleOpenBulkTagModal = () => {
   isBulkTagModalOpen.value = true
 }
 
+const bulkTagError = ref('')
+
 const handleBulkAttachTags = async () => {
   if (selectedProspects.value.length === 0 || selectedTagIds.value.length === 0) return
+  bulkTagError.value = ''
   try {
     await bulkAttachTagsMutation.mutateAsync({
       prospectIds: selectedProspects.value,
@@ -162,6 +167,7 @@ const handleBulkAttachTags = async () => {
     clearSelectedProspects()
   } catch (error) {
     console.error('Bulk attach tags error:', error)
+    bulkTagError.value = error.response?.data?.message || 'Failed to assign tags. Please try again.'
   }
 }
 
@@ -581,6 +587,9 @@ const filteredTagName = computed(() => {
       @close="isBulkTagModalOpen = false"
     >
       <div class="space-y-4">
+        <div v-if="bulkTagError" class="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded text-sm">
+          {{ bulkTagError }}
+        </div>
         <p class="text-sm text-theme-secondary">Select tags to assign:</p>
         <div class="max-h-96 overflow-y-auto space-y-2">
           <label

@@ -42,4 +42,10 @@ router.beforeEach((to) => {
   }
 })
 
+// Clear stale body overflow on every navigation (modals set overflow:hidden
+// and may not clean up if the component is unmounted during a route change)
+router.afterEach(() => {
+  document.body.style.overflow = ''
+})
+
 export default router

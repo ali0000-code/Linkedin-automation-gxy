@@ -15,9 +15,34 @@ use Illuminate\Support\Facades\Log;
 /**
  * Action Queue Service
  *
- * Handles action queue generation and management for campaign execution.
- * When a campaign is started, this service generates all the actions
- * that need to be executed by the Chrome extension.
+ * Central service for generating, polling, and completing campaign actions.
+ *
+ * Action generation (generateActionsForCampaign):
+ * - Creates action_queue rows for every (prospect x step) combination
+ * - Uses bulk insert (chunked at 500 rows) to avoid exceeding DB query limits
+ * - Calculates scheduled_for timestamps by accumulating delay_days across steps
+ * - Personalizes message templates with prospect data at generation time
+ *   (not at execution time) so the extension gets ready-to-use content
+ * - Runs in a DB transaction; rolls back everything if any insert fails
+ *
+ * Action polling (getNextAction):
+ * - Returns the oldest pending action where scheduled_for <= now()
+ * - Only returns actions from active campaigns (checked via whereHas)
+ * - Periodically resets stale in_progress actions (stuck > 5 minutes)
+ *   using a cache-throttled check (once every 2 minutes per user)
+ *
+ * Completion (markCompleted / markFailed):
+ * - Updates action status and cascades to campaign_prospect and campaign counters
+ * - markFailed supports retry (up to 3 attempts with 5-minute backoff)
+ * - On final failure, cancels all remaining pending actions for that prospect
+ *   in the same campaign (no point continuing if a step failed)
+ * - After each completion/failure, checks if the campaign has no remaining
+ *   pending/in_progress actions and auto-completes it if so
+ *
+ * Concurrency safety:
+ * - markInProgressAtomic() uses WHERE status='pending' to prevent two extension
+ *   tabs from claiming the same action
+ * - All status transitions run inside DB transactions
  */
 class ActionQueueService
 {
@@ -71,6 +96,9 @@ class ActionQueueService
         DB::beginTransaction();
 
         try {
+            $bulkInsert = [];
+            $prospectIds = [];
+
             foreach ($campaignProspects as $campaignProspect) {
                 // Calculate scheduled time based on step delays
                 $scheduledFor = now();
@@ -84,26 +112,35 @@ class ActionQueueService
                     // Prepare action data (message content, etc.)
                     $actionData = $this->prepareActionData($step, $campaignProspect);
 
-                    // Create the action queue entry
-                    ActionQueue::create([
+                    $bulkInsert[] = [
                         'user_id' => $campaign->user_id,
                         'campaign_id' => $campaign->id,
                         'campaign_prospect_id' => $campaignProspect->id,
                         'campaign_step_id' => $step->id,
                         'prospect_id' => $campaignProspect->prospect_id,
                         'action_type' => $step->action->key,
-                        'action_data' => $actionData, // Model casts to JSON automatically
+                        'action_data' => json_encode($actionData),
                         'scheduled_for' => $scheduledFor,
                         'status' => self::STATUS_PENDING,
                         'retry_count' => 0,
-                    ]);
+                        'created_at' => now(),
+                        'updated_at' => now(),
+                    ];
 
                     $actionsCreated++;
                 }
 
-                // Mark campaign prospect as in progress
-                $campaignProspect->markInProgress();
+                $prospectIds[] = $campaignProspect->id;
             }
+
+            // Bulk insert all actions at once (chunk to avoid exceeding query limits)
+            foreach (array_chunk($bulkInsert, 500) as $chunk) {
+                ActionQueue::insert($chunk);
+            }
+
+            // Bulk update campaign prospects to in_progress
+            CampaignProspect::whereIn('id', $prospectIds)
+                ->update(['status' => CampaignProspect::STATUS_IN_PROGRESS]);
 
             DB::commit();
 

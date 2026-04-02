@@ -282,6 +282,22 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
 
+  // Get profile image from current LinkedIn profile page
+  if (message.type === 'GET_PROFILE_IMAGE') {
+    let imageUrl = null;
+    // The prospect's main photo uses "profile-framedphoto" (400x400).
+    // The user's own nav photo uses "profile-displayphoto" (100x100) — skip that.
+    const img = document.querySelector('img[src*="profile-framedphoto"]') ||
+                document.querySelector('.pv-top-card-profile-picture__image') ||
+                document.querySelector('img[src*="profile-displayphoto-shrink_400"]') ||
+                document.querySelector('img[src*="profile-displayphoto-shrink_200"]');
+    if (img?.src && !img.src.includes('ghost')) {
+      imageUrl = img.src;
+    }
+    sendResponse({ image_url: imageUrl });
+    return true;
+  }
+
   // Stop extraction request
   if (message.type === 'STOP_EXTRACTION') {
     console.log('[Content Script] Stop extraction requested');

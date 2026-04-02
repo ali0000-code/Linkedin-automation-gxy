@@ -1,8 +1,12 @@
 /**
- * Extension Communication Service
+ * @file extension.service.js - Service-layer Chrome extension communication
  *
- * Handles communication between the webapp and the Chrome extension.
- * Uses chrome.runtime.sendMessage for external messaging.
+ * Lower-level extension communication service used by campaign hooks (useCampaigns.js)
+ * for fire-and-forget operations like starting/stopping the campaign queue.
+ *
+ * Unlike useExtension.js (which is a React hook with context), this is a plain JS module
+ * that can be imported anywhere without React. It handles extension ID discovery,
+ * user prompting for manual ID entry, and connection error recovery (clears invalid IDs).
  */
 
 // Storage key for extension ID

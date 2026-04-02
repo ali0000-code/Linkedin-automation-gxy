@@ -14,8 +14,14 @@ use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 /**
  * TagController
  *
- * Handles all tag CRUD operations.
- * Uses TagService for business logic.
+ * REST endpoints for managing user-defined tags.
+ * Tags are labels applied to prospects for organization and campaign targeting.
+ *
+ * Standard CRUD via apiResource. Each tag includes a prospects_count (computed
+ * via withCount in TagService) so the frontend can display how many prospects
+ * are associated with each tag.
+ *
+ * All responses use TagResource for consistent JSON formatting.
  */
 class TagController extends Controller
 {

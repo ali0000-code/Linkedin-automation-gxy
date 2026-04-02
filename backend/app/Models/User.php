@@ -6,13 +6,34 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
+use Illuminate\Support\Str;
 use Laravel\Sanctum\HasApiTokens;
 
 /**
  * User Model
  *
- * Represents a user account in the system.
- * Each user can have one LinkedIn account, multiple prospects, tags, and campaigns.
+ * Represents a user account in the LinkedIn automation platform.
+ * Users authenticate exclusively via LinkedIn OAuth -- there are no passwords.
+ *
+ * Each user can have:
+ * - Exactly ONE linked LinkedIn account (1:1)
+ * - Many prospects (extracted leads)
+ * - Many tags (for organizing prospects)
+ * - Many campaigns (automated LinkedIn action sequences)
+ * - Many action queue entries (scheduled LinkedIn tasks)
+ * - Many message templates (reusable campaign messages)
+ * - ONE Gmail setting (for sending emails via SMTP)
+ *
+ * Authentication strategy:
+ * - Web app: Sanctum bearer tokens issued after LinkedIn OAuth callback
+ * - Chrome extension: Sanctum tokens issued via auth_key exchange
+ * - auth_key is a 22-char random string that allows the extension to authenticate
+ *   without going through OAuth (the user copies it from the web app settings)
+ * - Device limit: max 3 concurrent Sanctum tokens per user to prevent token sprawl
+ *
+ * Security:
+ * - OAuth tokens are encrypted at rest (Crypt::encryptString)
+ * - auth_key is hidden from serialization to prevent accidental API exposure
  */
 class User extends Authenticatable
 {
@@ -24,27 +45,41 @@ class User extends Authenticatable
      *
      * @var list<string>
      */
+    /**
+     * Mass-assignable attributes.
+     *
+     * All fields come from the LinkedIn OAuth response except:
+     * - auth_key: generated internally for extension authentication
+     * - is_active: admin-controlled account status flag
+     *
+     * @var list<string>
+     */
     protected $fillable = [
-        'linkedin_id',
+        'linkedin_id',         // LinkedIn's unique user identifier (from OAuth)
         'name',
         'email',
         'profile_url',
         'profile_image_url',
-        'oauth_access_token',
-        'oauth_refresh_token',
+        'oauth_access_token',  // Encrypted LinkedIn API access token
+        'oauth_refresh_token', // Encrypted refresh token (may be null if LinkedIn doesn't provide one)
         'token_expires_at',
         'is_active',
+        'auth_key',            // 22-char key for Chrome extension authentication (not OAuth-related)
         'last_login_at',
     ];
 
     /**
-     * The attributes that should be hidden for serialization.
+     * Attributes hidden from JSON serialization.
+     *
+     * These are security-sensitive credentials that must never appear in API responses.
+     * The auth_key is exposed only through a dedicated /api/auth/key endpoint.
      *
      * @var list<string>
      */
     protected $hidden = [
         'oauth_access_token',
         'oauth_refresh_token',
+        'auth_key',
     ];
 
     /**

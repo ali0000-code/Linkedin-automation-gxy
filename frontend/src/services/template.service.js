@@ -1,7 +1,9 @@
 /**
- * Template Service
+ * @file template.service.js - API calls for message template CRUD
  *
- * Handles all message template-related API operations.
+ * Templates are typed as 'invitation' (300-char connection request notes),
+ * 'message' (LinkedIn direct messages), or 'email' (Gmail outreach with subject lines).
+ * Supports individual and bulk delete operations.
  */
 
 import api from './api';

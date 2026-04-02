@@ -6,12 +6,30 @@ use App\Models\Prospect;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Pagination\LengthAwarePaginator;
+use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
 
 /**
  * ProspectService
  *
- * Service class for handling prospect (lead) business logic.
- * Manages CRUD operations, filtering, search, and bulk imports.
+ * Service class for prospect (lead) business logic.
+ *
+ * Cache strategy: Prospect stats are cached for 60 seconds per user
+ * (key: "prospect_stats_{user_id}"). The cache is busted on create,
+ * update, delete, and bulk delete operations.
+ *
+ * Bulk import (used by Chrome extension):
+ * - Deduplicates by profile_url (unique per user)
+ * - Currently uses individual queries per prospect (acceptable for extension
+ *   imports of 10-100 prospects; could be optimized for larger batches)
+ *
+ * Bulk attach tags (bulkAttachTags):
+ * - Uses DB::table('prospect_tag')->insertOrIgnore() for O(1) duplicate handling
+ *   instead of querying existing associations first
+ * - Builds the full cross-product of (prospect_ids x tag_ids) pivot rows
+ *
+ * All operations are scoped to the authenticated user to prevent cross-user
+ * data access.
  */
 class ProspectService
 {
@@ -102,6 +120,8 @@ class ProspectService
             $data['connection_status'] = 'not_connected';
         }
 
+        Cache::forget("prospect_stats_{$user->id}");
+
         return Prospect::create($data);
     }
 
@@ -155,6 +175,7 @@ class ProspectService
     public function updateProspect(Prospect $prospect, array $data): Prospect
     {
         $prospect->update($data);
+        Cache::forget("prospect_stats_{$prospect->user_id}");
         return $prospect->fresh(); // Reload from database
     }
 
@@ -168,6 +189,7 @@ class ProspectService
      */
     public function deleteProspect(Prospect $prospect): bool
     {
+        Cache::forget("prospect_stats_{$prospect->user_id}");
         return $prospect->delete();
     }
 
@@ -209,20 +231,21 @@ class ProspectService
      */
     public function getStats(User $user): array
     {
-        $total = Prospect::where('user_id', $user->id)->count();
-        $notConnected = Prospect::where('user_id', $user->id)
-            ->where('connection_status', 'not_connected')->count();
-        $pending = Prospect::where('user_id', $user->id)
-            ->where('connection_status', 'pending')->count();
-        $connected = Prospect::where('user_id', $user->id)
-            ->where('connection_status', 'connected')->count();
+        return Cache::remember("prospect_stats_{$user->id}", 60, function () use ($user) {
+            $stats = Prospect::where('user_id', $user->id)
+                ->selectRaw('COUNT(*) as total')
+                ->selectRaw("SUM(CASE WHEN connection_status = 'not_connected' THEN 1 ELSE 0 END) as not_connected")
+                ->selectRaw("SUM(CASE WHEN connection_status = 'pending' THEN 1 ELSE 0 END) as pending")
+                ->selectRaw("SUM(CASE WHEN connection_status = 'connected' THEN 1 ELSE 0 END) as connected")
+                ->first();
 
-        return [
-            'total' => $total,
-            'not_connected' => $notConnected,
-            'pending' => $pending,
-            'connected' => $connected,
-        ];
+            return [
+                'total' => (int) ($stats->total ?? 0),
+                'not_connected' => (int) ($stats->not_connected ?? 0),
+                'pending' => (int) ($stats->pending ?? 0),
+                'connected' => (int) ($stats->connected ?? 0),
+            ];
+        });
     }
 
     /**
@@ -237,6 +260,7 @@ class ProspectService
      */
     public function bulkDelete(User $user, array $prospectIds): int
     {
+        Cache::forget("prospect_stats_{$user->id}");
         return Prospect::where('user_id', $user->id)
             ->whereIn('id', $prospectIds)
             ->delete();
@@ -255,14 +279,32 @@ class ProspectService
      */
     public function bulkAttachTags(User $user, array $prospectIds, array $tagIds): int
     {
-        $prospects = Prospect::where('user_id', $user->id)
+        $prospectIds = Prospect::where('user_id', $user->id)
             ->whereIn('id', $prospectIds)
-            ->get();
+            ->pluck('id')
+            ->toArray();
 
-        foreach ($prospects as $prospect) {
-            $prospect->tags()->syncWithoutDetaching($tagIds);
+        if (empty($prospectIds) || empty($tagIds)) {
+            return 0;
         }
 
-        return $prospects->count();
+        // Build all pivot rows and insert, ignoring duplicates
+        $pivotRows = [];
+        $now = now();
+        foreach ($prospectIds as $prospectId) {
+            foreach ($tagIds as $tagId) {
+                $pivotRows[] = [
+                    'prospect_id' => $prospectId,
+                    'tag_id' => $tagId,
+                    'created_at' => $now,
+                    'updated_at' => $now,
+                ];
+            }
+        }
+
+        // Insert and ignore duplicates (existing associations stay untouched)
+        DB::table('prospect_tag')->insertOrIgnore($pivotRows);
+
+        return count($prospectIds);
     }
 }

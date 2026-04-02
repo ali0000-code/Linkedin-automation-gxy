@@ -16,7 +16,25 @@ use Illuminate\Support\Facades\DB;
 /**
  * SentEmailController
  *
- * Handles viewing sent emails and statistics.
+ * Manages the email sending workflow for prospects.
+ *
+ * Email flow for campaigns:
+ * 1. Campaign with email step completes (all prospects visited/extracted)
+ * 2. Frontend shows "pending extractions" via getPendingExtractions()
+ * 3. User reviews prospects with/without emails
+ * 4. User clicks "Send" -> queueFromCampaign() creates SentEmail records
+ *    and optionally triggers immediate sending via EmailService
+ * 5. User can also discard the extraction via discardExtraction()
+ *
+ * Manual email flow:
+ * 1. User creates a custom email via store() (not tied to a campaign)
+ * 2. User sends it via send() or sends multiple via sendBulk()
+ *
+ * Template personalization: queueFromCampaign() replaces placeholders like
+ * {firstName}, {company} with actual prospect data before storing.
+ *
+ * The emails_processed flag on Campaign prevents completed campaigns from
+ * showing up in pending extractions after the user has already processed them.
  */
 class SentEmailController extends Controller
 {

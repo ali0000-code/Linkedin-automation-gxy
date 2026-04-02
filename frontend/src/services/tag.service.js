@@ -1,7 +1,9 @@
 /**
- * Tag Service
+ * @file tag.service.js - API calls for tag CRUD
  *
- * Handles all tag-related API operations.
+ * Tags are user-scoped labels (with color) that can be attached to prospects.
+ * The backend returns nested responses (e.g., { data: { tag: {...} } }), so
+ * each method extracts the relevant object before returning.
  */
 
 import api from './api';

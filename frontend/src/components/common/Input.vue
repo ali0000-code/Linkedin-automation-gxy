@@ -5,6 +5,7 @@
     </label>
     <input
       :type="type"
+      :value="modelValue"
       :class="[
         'w-full px-3 py-2 border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-linkedin transition-colors bg-theme-raised text-theme-primary placeholder:text-theme-muted',
         error
@@ -13,6 +14,7 @@
         $attrs.class
       ]"
       v-bind="filteredAttrs"
+      @input="$emit('update:modelValue', $event.target.value)"
     />
     <p v-if="error" class="mt-1 text-sm text-red-500">{{ error }}</p>
   </div>
@@ -22,6 +24,10 @@
 import { computed, useAttrs } from 'vue'
 
 defineProps({
+  modelValue: {
+    type: [String, Number],
+    default: ''
+  },
   label: {
     type: String,
     default: ''
@@ -36,10 +42,12 @@ defineProps({
   }
 })
 
+defineEmits(['update:modelValue'])
+
 const attrs = useAttrs()
 
 const filteredAttrs = computed(() => {
-  const { class: _, ...rest } = attrs
+  const { class: _, 'onUpdate:modelValue': __, ...rest } = attrs
   return rest
 })
 </script>

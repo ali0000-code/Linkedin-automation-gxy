@@ -1,7 +1,8 @@
 /**
- * Gmail Service
+ * @file gmail.service.js - API calls for Gmail SMTP settings management
  *
- * Handles all Gmail settings-related API operations.
+ * Manages the Gmail App Password integration: saving credentials, verifying
+ * the SMTP connection works, and disconnecting. Used by the Settings page.
  */
 
 import api from './api';

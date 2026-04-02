@@ -1,7 +1,10 @@
 /**
- * Mail Service
+ * @file mail.service.js - API calls for email management
  *
- * Handles all sent email-related API operations.
+ * Covers the full email lifecycle: creating, queuing from campaigns, editing,
+ * sending (individual and bulk), deleting, and fetching pending extraction results.
+ * Extraction results come from campaigns that used the 'email' action type to
+ * visit prospect profiles and extract email addresses from Contact Info.
  */
 
 import api from './api';

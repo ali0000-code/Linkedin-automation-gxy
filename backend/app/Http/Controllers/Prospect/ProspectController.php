@@ -16,8 +16,17 @@ use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 /**
  * ProspectController
  *
- * Handles all prospect CRUD operations.
- * Uses ProspectService for business logic.
+ * REST endpoints for managing prospects (LinkedIn leads).
+ *
+ * Supports:
+ * - Standard CRUD (index, store, show, update, destroy)
+ * - Bulk import from Chrome extension (bulkImport) -- deduplicates by profile_url
+ * - Tag management per prospect (attachTags, detachTag)
+ * - Bulk operations (bulkDelete, bulkAttachTags) -- rate-limited to 20/min
+ * - Aggregate statistics (stats) -- cached for 60 seconds in ProspectService
+ *
+ * All responses use ProspectResource for consistent JSON formatting.
+ * All operations are scoped to the authenticated user.
  */
 class ProspectController extends Controller
 {

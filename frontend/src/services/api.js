@@ -1,8 +1,18 @@
 /**
- * API Service - Axios instance with interceptors
+ * @file api.js - Configured Axios instance with auth interceptors
  *
- * Handles all HTTP requests to the Laravel backend.
- * Automatically attaches authentication tokens and handles 401 errors.
+ * Central HTTP client for all backend API calls. Every service file imports this instance.
+ *
+ * Request interceptor: reads the auth token from localStorage (key: 'auth_token')
+ * and attaches it as a Bearer token on every outgoing request. This is read from
+ * localStorage directly (not Zustand) to keep the interceptor decoupled from React state.
+ *
+ * Response interceptor: catches 401 Unauthorized responses (expired/invalid token),
+ * clears local auth data, and hard-redirects to /login. This ensures the user is
+ * always sent to login when their session expires, regardless of which page they're on.
+ *
+ * Timeout: 30 seconds -- long enough for slow backend operations (bulk imports, email sending)
+ * but short enough to fail fast on network issues.
  */
 
 import axios from 'axios';

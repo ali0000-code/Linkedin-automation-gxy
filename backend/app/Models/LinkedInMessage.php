@@ -8,7 +8,28 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 /**
  * LinkedInMessage Model
  *
- * Represents an individual message within a LinkedIn conversation.
+ * Represents an individual message within a LinkedIn conversation thread.
+ *
+ * Messages can originate from two sources:
+ * 1. Synced from LinkedIn (via extension's sync or incoming-message endpoints)
+ *    - status = 'synced', linkedin_message_id populated
+ * 2. Created in the web app (user composes/schedules a reply)
+ *    - status = 'pending' (immediate send) or 'scheduled' (future send)
+ *    - The extension picks these up and sends them on LinkedIn
+ *
+ * Status lifecycle:
+ *   synced     - Imported from LinkedIn, read-only historical record
+ *   pending    - Queued for immediate sending by the extension
+ *   scheduled  - Queued for future sending (scheduled_at holds the send time)
+ *   sent       - Successfully sent on LinkedIn by the extension
+ *   failed     - Extension failed to send (error_message has details)
+ *
+ * Scheduled messages: when scheduled_at <= now(), the extension's pending-messages
+ * endpoint includes them alongside regular pending messages. Once sent, status
+ * becomes 'sent' and sent_at is populated.
+ *
+ * Deduplication: linkedin_message_id is used as primary dedup key when syncing.
+ * For messages without an ID, content + sender + time window is used as fallback.
  */
 class LinkedInMessage extends Model
 {

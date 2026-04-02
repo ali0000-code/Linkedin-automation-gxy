@@ -154,9 +154,9 @@ const allTags = computed(() => (Array.isArray(tagsData.value) ? tagsData.value :
 const tagsWithProspects = computed(() => allTags.value.filter(tag => tag.prospects_count > 0))
 
 // Mutations
-const { mutateAsync: createCampaign, isLoading: isCreating } = useCreateCampaign()
-const { mutateAsync: addProspects, isLoading: isAddingProspects } = useAddProspects()
-const { mutateAsync: startCampaign, isLoading: isStarting } = useStartCampaign()
+const { mutateAsync: createCampaign, isPending: isCreating } = useCreateCampaign()
+const { mutateAsync: addProspects, isPending: isAddingProspects } = useAddProspects()
+const { mutateAsync: startCampaign, isPending: isStarting } = useStartCampaign()
 
 const isSaving = computed(() => isCreating.value || isAddingProspects.value || isStarting.value)
 

@@ -9,7 +9,27 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 /**
  * Conversation Model
  *
- * Represents a LinkedIn message conversation/thread.
+ * Represents a LinkedIn messaging conversation/thread between the user and one participant.
+ *
+ * Sync flow:
+ * 1. The Chrome extension scrapes the LinkedIn inbox and POSTs to /api/inbox/sync
+ * 2. The sync endpoint creates/updates Conversation records using the normalized
+ *    linkedin_conversation_id as the unique identifier
+ * 3. Messages within each conversation are synced separately via syncMessages
+ *
+ * Unread tracking:
+ * - is_unread and unread_count are managed by the webapp, NOT blindly copied from LinkedIn.
+ * - When a new incoming message arrives (/api/inbox/incoming-message), unread_count is
+ *   incremented and is_unread is set to true.
+ * - When the user views a conversation in the webapp, markAsRead() resets both fields.
+ * - During bulk sync, existing conversations' unread state is NOT overwritten to avoid
+ *   losing the user's read state in the webapp.
+ *
+ * The prospect_id is nullable because conversations may exist before the participant
+ * is imported as a prospect (or the participant may not be a prospect at all).
+ *
+ * linkedin_conversation_id is normalized to strip LinkedIn URN prefixes, ensuring
+ * consistent deduplication regardless of the format the extension sends.
  */
 class Conversation extends Model
 {

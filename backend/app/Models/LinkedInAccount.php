@@ -7,9 +7,24 @@ use Illuminate\Database\Eloquent\Model;
 /**
  * LinkedInAccount Model
  *
- * Represents a connected LinkedIn profile.
- * Each user can have exactly ONE LinkedIn account (1-to-1 relationship).
- * Stores encrypted session cookies for authenticating with LinkedIn.
+ * Represents a connected LinkedIn profile (1:1 with User).
+ *
+ * This model stores two distinct types of LinkedIn credentials:
+ * 1. Profile data from OAuth (linkedin_id, full_name, email, etc.)
+ *    - Populated/updated during each OAuth callback
+ * 2. Browser session cookies (cookies column)
+ *    - Optionally stored by the extension for automation tasks
+ *    - Encrypted at rest using Laravel's encrypt() helper
+ *    - Separate from OAuth tokens because they serve different purposes:
+ *      OAuth tokens are for API access, cookies are for browser-level automation
+ *
+ * Cookie management:
+ * - cookies_valid tracks whether the stored cookies are still usable
+ * - cookies_updated_at records when cookies were last refreshed
+ * - last_synced_at records the last successful extension verification
+ *
+ * The cookies column is hidden from serialization to prevent accidental
+ * exposure in API responses (defense in depth alongside encryption).
  */
 class LinkedInAccount extends Model
 {

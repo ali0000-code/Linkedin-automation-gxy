@@ -6,18 +6,32 @@
  */
 
 /**
- * Get all profile links from the current search results page.
+ * Get profile links from search result cards.
  *
- * Strategy:
- *  1. data-view-name="search-result-lockup-title" (LinkedIn's attribute selector)
- *  2. One link per li.reusable-search__result-container card
- *  3. All a[href*="/in/"] links NOT inside nav/header/aside/footer, deduped by path.
- *     Does NOT require links to be inside <li> — LinkedIn may use <div> cards.
+ * LinkedIn (2025) uses div[role="listitem"] for each search result card.
+ * Each card contains the person's profile link AND mutual connection links.
+ * We take only the FIRST a[href*="/in/"] per card to get the actual result,
+ * not the mutual connections listed at the bottom of each card.
  *
  * @returns {Array<HTMLAnchorElement>}
  */
 function getProfileLinks() {
-  // Primary: data-view-name attribute (most reliable when present)
+  // Current LinkedIn (2025): each search result card is div[role="listitem"]
+  const listItems = document.querySelectorAll('div[role="listitem"]');
+  if (listItems.length > 0) {
+    const links = [];
+    for (const card of listItems) {
+      // First /in/ link in the card is the person's name — NOT mutual connections
+      const link = card.querySelector('a[href*="/in/"]');
+      if (link) links.push(link);
+    }
+    if (links.length > 0) {
+      console.log(`[Extractor] Found ${links.length} links via div[role="listitem"] cards`);
+      return links;
+    }
+  }
+
+  // Legacy: data-view-name attribute (older LinkedIn)
   const primary = Array.from(
     document.querySelectorAll('a[data-view-name="search-result-lockup-title"][href*="/in/"]')
   );
@@ -26,7 +40,7 @@ function getProfileLinks() {
     return primary;
   }
 
-  // Fallback 1: one link per search result card (class-based)
+  // Legacy: li.reusable-search__result-container (older LinkedIn)
   const cards = document.querySelectorAll('li.reusable-search__result-container');
   if (cards.length > 0) {
     const links = [];
@@ -40,30 +54,6 @@ function getProfileLinks() {
     }
   }
 
-  // Fallback 2: every profile link on the page, excluding non-content areas.
-  // Uses closest() to skip links inside nav, header, aside, footer, or sidebar.
-  const allLinks = Array.from(document.querySelectorAll('a[href*="/in/"]'));
-  const seen = new Set();
-  const links = [];
-
-  for (const link of allLinks) {
-    if (link.closest('nav, header, footer, aside, .scaffold-layout__aside, [class*="global-nav"]')) {
-      continue;
-    }
-
-    try {
-      const path = new URL(link.href).pathname;
-      if (seen.has(path)) continue;
-      seen.add(path);
-      links.push(link);
-    } catch { continue; }
-  }
-
-  if (links.length > 0) {
-    console.log(`[Extractor] Found ${links.length} links via broad fallback (nav/aside excluded)`);
-    return links;
-  }
-
   console.log('[Extractor] No profile links found with any selector');
   return [];
 }
@@ -75,10 +65,11 @@ function getProfileLinks() {
  * @param {number} maxWait - Maximum milliseconds to wait (default 8s)
  * @returns {Promise<void>}
  */
-async function waitForSearchResults(maxWait = 8000) {
+async function waitForSearchResults(maxWait = 10000) {
   const start = Date.now();
   while (Date.now() - start < maxWait) {
-    // Broad check: if the page has any profile links at all, content has loaded
+    // Check for search result cards (div[role="listitem"]) or any profile links
+    if (document.querySelectorAll('div[role="listitem"]').length > 0) return;
     if (document.querySelectorAll('a[href*="/in/"]').length > 2) return;
     await new Promise(r => setTimeout(r, 500));
   }
@@ -385,47 +376,42 @@ async function extractProfiles(limit = 100, totalCollected = 0, totalLimit = 100
         continue;
       }
 
-      // Find the parent container to extract additional data
-      const container = link.closest('div');
-      const containerText = container?.textContent || '';
+      // Find the card root: div[role="listitem"] or walk up to find a container with an image
+      let cardRoot = link.closest('div[role="listitem"]') || link.closest('li');
+      if (!cardRoot) {
+        cardRoot = link.parentElement;
+        for (let depth = 0; depth < 6 && cardRoot; depth++) {
+          if (cardRoot.querySelector('img')) break;
+          cardRoot = cardRoot.parentElement;
+        }
+      }
+      if (!cardRoot) cardRoot = link.parentElement;
 
-      // Extract profile image with multiple fallback methods
-      const cardRoot = link.closest('li') || link.closest('div[componentkey]') || container;
       let profileImage = null;
 
       if (cardRoot) {
-        // Method 1: Find img inside figure with data-view-name="image" (LinkedIn's new UI)
-        let imgEl = cardRoot.querySelector('figure[data-view-name="image"] img');
+        // LinkedIn 2025: profile image is in the FIRST <figure> of the card.
+        // Mutual connection images are inside <ul> further down — skip those.
+        // The profile img has alt="PersonName" matching the extracted name.
+        let imgEl = cardRoot.querySelector(`img[alt="${name}"]`);
 
-        // Method 2: Find img by LinkedIn CDN URL pattern
+        // Fallback: first figure > img with a LinkedIn CDN src (not inside <ul>)
         if (!imgEl) {
-          imgEl = cardRoot.querySelector('img[src*="profile-displayphoto"]') ||
-                  cardRoot.querySelector('img[src*="media.licdn.com/dms/image"]');
-        }
-
-        // Method 3: Find img with alt containing "profile picture"
-        if (!imgEl) {
-          imgEl = cardRoot.querySelector('img[alt*="profile picture"]');
-        }
-
-        // Method 4: Find img by matching person's name in alt
-        if (!imgEl) {
-          imgEl = cardRoot.querySelector(`img[alt="${name}"]`) ||
-                  cardRoot.querySelector(`img[alt^="${name.split(' ')[0]}"]`);
-        }
-
-        // Method 5: Find any img in common image containers
-        if (!imgEl) {
-          imgEl = cardRoot.querySelector('.entity-result__image img') ||
-                  cardRoot.querySelector('.ivm-view-attr__img-wrapper img') ||
-                  cardRoot.querySelector('img.presence-entity__image');
-        }
-
-        // Get image URL, filtering out placeholders
-        if (imgEl && imgEl.src) {
-          if (!imgEl.src.includes('ghost') && !imgEl.src.includes('placeholder')) {
-            profileImage = imgEl.src;
+          const firstFigure = cardRoot.querySelector('figure');
+          if (firstFigure && !firstFigure.closest('ul')) {
+            imgEl = firstFigure.querySelector('img[src*="media.licdn.com"]') ||
+                    firstFigure.querySelector('img[src*="profile-displayphoto"]');
           }
+        }
+
+        // Legacy fallbacks
+        if (!imgEl) {
+          imgEl = cardRoot.querySelector('figure[data-view-name="image"] img') ||
+                  cardRoot.querySelector('img[src*="profile-displayphoto"]');
+        }
+
+        if (imgEl && imgEl.src && !imgEl.src.includes('ghost') && !imgEl.src.includes('placeholder')) {
+          profileImage = imgEl.src;
         }
       }
 
@@ -951,16 +937,60 @@ async function performExtraction(limit = 100) {
  * Open Contact Info overlay on a profile page
  * @returns {Promise<boolean>} True if overlay opened successfully
  */
-async function openContactInfoOverlay() {
-  const selectors = window.LINKEDIN_SELECTORS?.CONTACT_INFO;
-
-  if (!selectors) {
-    console.error('[Extractor] Contact Info selectors not loaded');
-    return false;
+/**
+ * Find the contact info modal/dialog on the page.
+ * LinkedIn 2025 uses #dialog-header and data-testid="lazy-column" instead of
+ * .artdeco-modal__content or [role="dialog"].
+ * @returns {Element|null}
+ */
+function findContactInfoModal() {
+  // LinkedIn 2025: dialog has #dialog-header with "Contact info" text
+  const dialogHeader = document.querySelector('#dialog-header');
+  if (dialogHeader) {
+    // Return the dialog header's parent container (the dialog itself)
+    return dialogHeader.closest('[role="dialog"]') || dialogHeader.parentElement;
   }
 
-  // Find the Contact Info link
-  const opener = document.querySelector(selectors.OPENER);
+  // LinkedIn 2025: content area with data-testid="lazy-column"
+  const lazyColumn = document.querySelector('[data-testid="lazy-column"]');
+  if (lazyColumn && lazyColumn.querySelector('a[href^="mailto:"]')) {
+    return lazyColumn;
+  }
+
+  // Legacy: artdeco modal
+  const legacy = document.querySelector('.artdeco-modal__content');
+  if (legacy) return legacy;
+
+  // Fallback: any role="dialog" containing contact info
+  for (const dialog of document.querySelectorAll('[role="dialog"]')) {
+    if (dialog.querySelector('a[href^="mailto:"]') ||
+        dialog.textContent.includes('Contact info')) {
+      return dialog;
+    }
+  }
+
+  return null;
+}
+
+async function openContactInfoOverlay() {
+  // No "already open" check here — extractEmailFromProfile() already checks for
+  // mailto: links before calling this. If we're here, we need to click the opener.
+
+  // Try multiple selectors for the opener link
+  const openerSelectors = [
+    'a[href*="overlay/contact-info"]',                    // Legacy
+    'a[href*="contact-info"]',                            // Shortened
+    '#top-card-text-details-contact-info',                // Profile top card ID
+    'a[data-control-name="contact_see_more"]',            // Data attribute
+    '[data-testid="contact-info-link"]',                  // Test ID
+    'a[aria-label*="contact info" i]',                    // Aria label
+  ];
+
+  let opener = null;
+  for (const sel of openerSelectors) {
+    opener = document.querySelector(sel);
+    if (opener) break;
+  }
 
   if (!opener) {
     console.log('[Extractor] Contact Info link not found on this page');
@@ -968,43 +998,50 @@ async function openContactInfoOverlay() {
   }
 
   console.log('[Extractor] Opening Contact Info overlay...');
-  opener.click();
+  // Simulate a real user click — plain .click() may not trigger LinkedIn's SPA handlers
+  opener.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window }));
+  // Also focus + Enter as fallback (LinkedIn intercepts keyboard events on links)
+  opener.focus();
+  opener.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', bubbles: true }));
 
-  // Wait for modal to appear
+  // Wait for modal/dialog to appear — check both specific selectors and generic indicators
   let attempts = 0;
   const maxAttempts = 15;
 
   while (attempts < maxAttempts) {
     await new Promise(resolve => setTimeout(resolve, 500));
 
-    const modal = document.querySelector(selectors.MODAL);
-    if (modal) {
-      console.log('[Extractor] Contact Info modal found, waiting for content to load...');
+    // Check if a mailto link appeared (strongest signal that contact info loaded)
+    if (document.querySelector('a[href^="mailto:"]')) {
+      console.log('[Extractor] mailto link detected — Contact Info loaded');
+      await new Promise(resolve => setTimeout(resolve, 500));
+      return true;
+    }
 
-      // Wait for the content to fully load - check for sections or email link
-      // Wait up to 8 seconds (16 attempts x 500ms)
+    // Check via modal finder
+    const modal = findContactInfoModal();
+    // Also check for any new dialog or overlay with "Contact info" text
+    const anyDialog = modal ||
+      document.querySelector('[role="dialog"]') ||
+      document.querySelector('#dialog-header');
+
+    if (anyDialog) {
+      console.log('[Extractor] Contact Info dialog detected, waiting for content...');
+
+      // Wait for mailto link to appear inside the dialog
       let contentAttempts = 0;
-      const maxContentAttempts = 16;
-
-      while (contentAttempts < maxContentAttempts) {
-        // Check if email section or any section with content is present
-        const emailLink = modal.querySelector('a[href^="mailto:"]');
-        const sections = modal.querySelectorAll('section');
-        const hasContent = emailLink || sections.length > 0;
-
-        if (hasContent) {
-          console.log('[Extractor] Contact Info content loaded');
-          // Give it one more moment for any final rendering
+      while (contentAttempts < 16) {
+        if (document.querySelector('a[href^="mailto:"]')) {
+          console.log('[Extractor] Contact Info content loaded (mailto found)');
           await new Promise(resolve => setTimeout(resolve, 500));
           return true;
         }
-
         contentAttempts++;
         await new Promise(resolve => setTimeout(resolve, 500));
       }
 
-      // Content didn't fully load but modal is there, proceed anyway
-      console.log('[Extractor] Contact Info modal open but content may be incomplete');
+      // Dialog is there but no mailto — proceed anyway (user may not have email listed)
+      console.log('[Extractor] Contact Info dialog open, no mailto found');
       return true;
     }
 
@@ -1020,27 +1057,19 @@ async function openContactInfoOverlay() {
  * @returns {string|null} Email address or null if not found
  */
 function extractEmailFromOverlay() {
-  const selectors = window.LINKEDIN_SELECTORS?.CONTACT_INFO;
+  // Try finding any mailto link in the contact info modal/dialog
+  const modal = findContactInfoModal();
 
-  if (!selectors) {
-    console.error('[Extractor] Contact Info selectors not loaded');
-    return null;
+  let emailLink = null;
+
+  // Search inside the modal first
+  if (modal) {
+    emailLink = modal.querySelector('a[href^="mailto:"]');
   }
 
-  // Try primary selector first
-  let emailLink = document.querySelector(selectors.EMAIL_LINK);
-
-  // Try alternative selector
+  // Fallback: search the whole page for a mailto link (in case modal detection missed)
   if (!emailLink) {
-    emailLink = document.querySelector(selectors.EMAIL_LINK_ALT);
-  }
-
-  // Try finding any mailto link in the modal
-  if (!emailLink) {
-    const modal = document.querySelector(selectors.MODAL);
-    if (modal) {
-      emailLink = modal.querySelector('a[href^="mailto:"]');
-    }
+    emailLink = document.querySelector('a[href^="mailto:"]');
   }
 
   if (!emailLink) {
@@ -1048,7 +1077,6 @@ function extractEmailFromOverlay() {
     return null;
   }
 
-  // Extract email from href="mailto:email@example.com"
   const href = emailLink.getAttribute('href');
   const email = href.replace('mailto:', '').trim();
 
@@ -1061,12 +1089,11 @@ function extractEmailFromOverlay() {
  * @returns {Promise<void>}
  */
 async function closeContactInfoOverlay() {
-  const selectors = window.LINKEDIN_SELECTORS?.CONTACT_INFO;
-
-  // Try to find dismiss button
-  const closeButton = document.querySelector(selectors?.CLOSE_BUTTON) ||
-                      document.querySelector('button[aria-label="Dismiss"]') ||
-                      document.querySelector('.artdeco-modal__dismiss');
+  // Try multiple close button selectors (LinkedIn 2025 uses various patterns)
+  const closeButton = document.querySelector('button[aria-label="Dismiss"]') ||
+                      document.querySelector('.artdeco-modal__dismiss') ||
+                      document.querySelector('[role="dialog"] button[aria-label="Close"]') ||
+                      document.querySelector('[role="dialog"] button[aria-label="Dismiss"]');
 
   if (closeButton) {
     closeButton.click();
@@ -1091,28 +1118,40 @@ async function extractEmailFromProfile() {
       return { success: false, email: null, error: 'Not on a profile page' };
     }
 
-    // Open the Contact Info overlay
-    const opened = await openContactInfoOverlay();
-
-    if (!opened) {
-      return { success: false, email: null, error: 'Could not open Contact Info' };
+    // Step 1: Check if a mailto link is already visible (dialog may already be open)
+    let emailLink = document.querySelector('a[href^="mailto:"]');
+    if (emailLink) {
+      const email = emailLink.getAttribute('href').replace('mailto:', '').trim();
+      console.log('[Extractor] Email found immediately (dialog already open):', email);
+      return { success: true, email };
     }
 
-    // Extract email
-    const email = extractEmailFromOverlay();
+    // Step 2: Try to open the Contact Info overlay
+    const opened = await openContactInfoOverlay();
+    if (!opened) {
+      return { success: false, email: null, error: 'Could not open Contact Info. Try refreshing the page.' };
+    }
 
-    // Close the overlay
+    // Step 3: Wait for mailto link to appear (up to 8 seconds)
+    for (let i = 0; i < 16; i++) {
+      emailLink = document.querySelector('a[href^="mailto:"]');
+      if (emailLink) break;
+      await new Promise(r => setTimeout(r, 500));
+    }
+
+    // Step 4: Close the overlay
     await closeContactInfoOverlay();
 
-    if (email) {
-      return { success: true, email: email };
+    if (emailLink) {
+      const email = emailLink.getAttribute('href').replace('mailto:', '').trim();
+      console.log('[Extractor] Email found:', email);
+      return { success: true, email };
     } else {
-      return { success: true, email: null, error: 'No email found for this user' };
+      return { success: true, email: null, error: 'No email found in Contact Info' };
     }
 
   } catch (error) {
     console.error('[Extractor] Error extracting email:', error);
-    // Try to close overlay if it's open
     await closeContactInfoOverlay();
     return { success: false, email: null, error: error.message };
   }

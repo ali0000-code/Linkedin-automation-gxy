@@ -909,11 +909,22 @@ async function handleSaveEmailClick() {
     }
 
     // Prospect doesn't exist, create a new one with the email
+    // Try to grab the profile image from the current LinkedIn page
+    let profileImageUrl = null;
+    try {
+      const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
+      if (activeTab?.id) {
+        const imgResult = await chrome.tabs.sendMessage(activeTab.id, { type: 'GET_PROFILE_IMAGE' });
+        if (imgResult?.image_url) profileImageUrl = imgResult.image_url;
+      }
+    } catch (e) { /* ignore - image is optional */ }
+
     const newProspect = {
       full_name: profileName,
       profile_url: currentProfileUrl,
       linkedin_id: linkedinId,
-      email: currentExtractedEmail
+      email: currentExtractedEmail,
+      profile_image_url: profileImageUrl
     };
 
     const importResult = await window.ExtensionAPI.bulkImportProspects([newProspect]);
