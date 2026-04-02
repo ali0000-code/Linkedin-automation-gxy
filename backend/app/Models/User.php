@@ -139,4 +139,68 @@ class User extends Authenticatable
     {
         return $this->hasMany(SentEmail::class);
     }
+
+    /**
+     * Create a Sanctum token while enforcing a per-user device limit.
+     *
+     * Prevents token sprawl by pruning old tokens when the limit is reached.
+     * When a user has >= $maxDevices tokens, we keep the ($maxDevices - 1) most
+     * recent ones and delete the rest, then create a new one -- so the total
+     * never exceeds $maxDevices.
+     *
+     * Tokens expire after 30 days (hardcoded here; also configured in sanctum.php).
+     *
+     * @param string $name Token name for identification (e.g., 'webapp', 'extension')
+     * @param array $abilities Token abilities/scopes (default: all)
+     * @param int $maxDevices Maximum concurrent tokens allowed (default: 3)
+     * @return \Laravel\Sanctum\NewAccessToken
+     */
+    public function createTokenWithDeviceLimit(string $name, array $abilities = ['*'], int $maxDevices = 3): \Laravel\Sanctum\NewAccessToken
+    {
+        // Enforce the limit per token name separately so webapp sessions
+        // and extension tokens don't compete for the same slots.
+        $existingTokens = $this->tokens()
+            ->where('name', $name)
+            ->orderBy('created_at', 'desc')
+            ->get();
+
+        if ($existingTokens->count() >= $maxDevices) {
+            // Keep the ($maxDevices - 1) most recent, delete the rest
+            $tokensToKeep = $existingTokens->take($maxDevices - 1)->pluck('id');
+            $this->tokens()->where('name', $name)->whereNotIn('id', $tokensToKeep)->delete();
+        }
+
+        return $this->createToken($name, $abilities, now()->addDays(30));
+    }
+
+    /**
+     * Generate a new random auth key and persist it.
+     *
+     * Calling this invalidates any Chrome extension instance using the old key,
+     * forcing the user to re-enter the new key. Useful if the key is compromised.
+     *
+     * @return string The newly generated 22-character auth key
+     */
+    public function regenerateAuthKey(): string
+    {
+        $key = Str::random(22);
+        $this->update(['auth_key' => $key]);
+        return $key;
+    }
+
+    /**
+     * Ensure the user has an auth key, generating one lazily if missing.
+     *
+     * Called during OAuth callback to guarantee every user has an auth key
+     * without forcing regeneration on existing users.
+     *
+     * @return string The existing or newly generated auth key
+     */
+    public function ensureAuthKey(): string
+    {
+        if (!$this->auth_key) {
+            return $this->regenerateAuthKey();
+        }
+        return $this->auth_key;
+    }
 }
