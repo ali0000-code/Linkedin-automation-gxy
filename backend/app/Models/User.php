@@ -192,12 +192,17 @@ class User extends Authenticatable
      */
     public function createTokenWithDeviceLimit(string $name, array $abilities = ['*'], int $maxDevices = 3): \Laravel\Sanctum\NewAccessToken
     {
-        $existingTokens = $this->tokens()->orderBy('created_at', 'desc')->get();
+        // Enforce the limit per token name separately so webapp sessions
+        // and extension tokens don't compete for the same slots.
+        $existingTokens = $this->tokens()
+            ->where('name', $name)
+            ->orderBy('created_at', 'desc')
+            ->get();
 
         if ($existingTokens->count() >= $maxDevices) {
-            // Keep the last ($maxDevices - 1) tokens, delete the rest
+            // Keep the ($maxDevices - 1) most recent, delete the rest
             $tokensToKeep = $existingTokens->take($maxDevices - 1)->pluck('id');
-            $this->tokens()->whereNotIn('id', $tokensToKeep)->delete();
+            $this->tokens()->where('name', $name)->whereNotIn('id', $tokensToKeep)->delete();
         }
 
         return $this->createToken($name, $abilities, now()->addDays(30));

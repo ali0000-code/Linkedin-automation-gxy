@@ -437,6 +437,14 @@ async function handleExtractClick() {
       console.log('[Popup] Received response from content script:', response);
 
       if (response.success) {
+        if (!response.prospects || response.prospects.length === 0) {
+          showStatus('No prospects found. Make sure you\'re on a LinkedIn search results page with visible profiles.', 'error');
+          showProgress(false);
+          extractBtn.disabled = false;
+          extractBtn.textContent = 'Extract Prospects';
+          return;
+        }
+
         // Send to backend
         try {
           showLoading(true);

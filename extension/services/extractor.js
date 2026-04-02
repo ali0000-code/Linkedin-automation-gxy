@@ -6,6 +6,86 @@
  */
 
 /**
+ * Get all profile links from the current search results page.
+ *
+ * Strategy:
+ *  1. data-view-name="search-result-lockup-title" (LinkedIn's attribute selector)
+ *  2. One link per li.reusable-search__result-container card
+ *  3. All a[href*="/in/"] links NOT inside nav/header/aside/footer, deduped by path.
+ *     Does NOT require links to be inside <li> — LinkedIn may use <div> cards.
+ *
+ * @returns {Array<HTMLAnchorElement>}
+ */
+function getProfileLinks() {
+  // Primary: data-view-name attribute (most reliable when present)
+  const primary = Array.from(
+    document.querySelectorAll('a[data-view-name="search-result-lockup-title"][href*="/in/"]')
+  );
+  if (primary.length > 0) {
+    console.log(`[Extractor] Found ${primary.length} links via data-view-name selector`);
+    return primary;
+  }
+
+  // Fallback 1: one link per search result card (class-based)
+  const cards = document.querySelectorAll('li.reusable-search__result-container');
+  if (cards.length > 0) {
+    const links = [];
+    for (const card of cards) {
+      const link = card.querySelector('a[href*="/in/"]');
+      if (link) links.push(link);
+    }
+    if (links.length > 0) {
+      console.log(`[Extractor] Found ${links.length} links via reusable-search cards`);
+      return links;
+    }
+  }
+
+  // Fallback 2: every profile link on the page, excluding non-content areas.
+  // Uses closest() to skip links inside nav, header, aside, footer, or sidebar.
+  const allLinks = Array.from(document.querySelectorAll('a[href*="/in/"]'));
+  const seen = new Set();
+  const links = [];
+
+  for (const link of allLinks) {
+    if (link.closest('nav, header, footer, aside, .scaffold-layout__aside, [class*="global-nav"]')) {
+      continue;
+    }
+
+    try {
+      const path = new URL(link.href).pathname;
+      if (seen.has(path)) continue;
+      seen.add(path);
+      links.push(link);
+    } catch { continue; }
+  }
+
+  if (links.length > 0) {
+    console.log(`[Extractor] Found ${links.length} links via broad fallback (nav/aside excluded)`);
+    return links;
+  }
+
+  console.log('[Extractor] No profile links found with any selector');
+  return [];
+}
+
+/**
+ * Wait for the page to load enough content to start extraction (up to maxWait ms).
+ * Uses a broad check (any 3+ /in/ links) so it doesn't depend on specific selectors
+ * that may not match the current LinkedIn DOM version.
+ * @param {number} maxWait - Maximum milliseconds to wait (default 8s)
+ * @returns {Promise<void>}
+ */
+async function waitForSearchResults(maxWait = 8000) {
+  const start = Date.now();
+  while (Date.now() - start < maxWait) {
+    // Broad check: if the page has any profile links at all, content has loaded
+    if (document.querySelectorAll('a[href*="/in/"]').length > 2) return;
+    await new Promise(r => setTimeout(r, 500));
+  }
+  console.warn('[Extractor] Timed out waiting for search results to load');
+}
+
+/**
  * Scroll page to load all lazy-loaded content
  * LinkedIn uses infinite scroll, so we need to scroll to bottom multiple times
  * @param {number} maxProfiles - Optional max profiles to load (for limit-based scrolling)
@@ -24,6 +104,9 @@ async function scrollToLoadAll(maxProfiles = null) {
     await loadConnectionsWithScroll(maxProfiles);
     return;
   }
+
+  // Wait for initial content to appear before measuring heights
+  await waitForSearchResults();
 
   // Regular search page - use standard scrolling
   let previousHeight = 0;
@@ -267,18 +350,8 @@ async function extractProfiles(limit = 100, totalCollected = 0, totalLimit = 100
 
   console.log(`[Extractor] Starting extraction with limit: ${limit}`);
 
-  // LinkedIn uses data-view-name attributes which are more stable than class names
-  // Find all profile links with data-view-name="search-result-lockup-title"
-  const profileLinks = document.querySelectorAll('a[data-view-name="search-result-lockup-title"][href*="/in/"]');
-
-  console.log(`[Extractor] Found ${profileLinks.length} profile links using data-view-name selector`);
-
-  // If no profiles found with primary selector, try fallback
-  if (profileLinks.length === 0) {
-    console.log('[Extractor] Trying fallback selector...');
-    const fallbackLinks = document.querySelectorAll('a.app-aware-link[href*="/in/"]');
-    console.log(`[Extractor] Found ${fallbackLinks.length} profile links using fallback selector`);
-  }
+  const profileLinks = getProfileLinks();
+  console.log(`[Extractor] Found ${profileLinks.length} profile links to process`);
 
   // Extract data from each profile link
   for (const link of profileLinks) {
@@ -295,7 +368,17 @@ async function extractProfiles(limit = 100, totalCollected = 0, totalLimit = 100
 
     try {
       const profileUrl = link.href;
-      const name = link.textContent.trim();
+
+      // Extract just the person's name — not nested headline/company text.
+      // LinkedIn wraps the visible name in span[aria-hidden="true"] inside the link.
+      // Fall back to the first non-empty line of textContent.
+      const nameSpan = link.querySelector('span[aria-hidden="true"]') ||
+                       link.querySelector('span:not(.visually-hidden)');
+      let name = (nameSpan ? nameSpan.textContent : link.textContent)
+        .trim()
+        .split('\n')[0]   // take only first line in case of multiline text
+        .trim()
+        .substring(0, 100); // names are never 100 chars; caps runaway text
 
       // Skip if no name or URL
       if (!name || !profileUrl) {
@@ -346,10 +429,18 @@ async function extractProfiles(limit = 100, totalCollected = 0, totalLimit = 100
         }
       }
 
+      // Strip tracking params from profile URL (LinkedIn appends ?miniProfileUrn=... etc.)
+      let cleanProfileUrl = profileUrl;
+      try {
+        const u = new URL(profileUrl);
+        // Keep only the /in/username/ path, drop all query params
+        cleanProfileUrl = u.origin + u.pathname.replace(/\/$/, '') + '/';
+      } catch { /* keep original if URL parse fails */ }
+
       const prospect = {
         full_name: name,
-        profile_url: profileUrl,
-        linkedin_id: extractLinkedInId(profileUrl),
+        profile_url: cleanProfileUrl,
+        linkedin_id: extractLinkedInId(cleanProfileUrl),
         profile_image_url: profileImage
       };
 
@@ -433,8 +524,8 @@ async function clickNextButton() {
     if (newUrl !== currentUrl || newPage > currentPage) {
       console.log('[Extractor] ✓ Page navigation detected - moved to page', newPage);
 
-      // Wait for profile links to appear
-      const profileLinks = document.querySelectorAll('a[data-view-name="search-result-lockup-title"][href*="/in/"]');
+      // Wait for profile links to appear using all fallback selectors
+      const profileLinks = getProfileLinks();
 
       if (profileLinks.length > 0) {
         console.log('[Extractor] ✓ New page loaded with', profileLinks.length, 'profiles');
