@@ -102,8 +102,8 @@ Route::middleware(['auth:sanctum', 'throttle:120,1'])->group(function () {
     Route::post('/prospects/{prospect}/tags', [ProspectController::class, 'attachTags']);
     Route::delete('/prospects/{prospect}/tags/{tag}', [ProspectController::class, 'detachTag']);
 
-    // Bulk operations — stricter rate limit
-    Route::middleware('throttle:20,1')->group(function () {
+    // Bulk operations
+    Route::middleware('throttle:60,1')->group(function () {
         Route::post('/prospects/bulk', [ProspectController::class, 'bulkImport']);
         Route::post('/prospects/bulk-delete', [ProspectController::class, 'bulkDelete']);
         Route::post('/prospects/bulk-attach-tags', [ProspectController::class, 'bulkAttachTags']);

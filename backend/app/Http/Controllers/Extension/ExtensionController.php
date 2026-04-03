@@ -158,22 +158,7 @@ class ExtensionController extends Controller
     {
         $user = $request->user();
 
-        // Check daily limit
-        $dailyLimit = 50; // Default, could be from user settings
-        $todayCount = $this->actionQueueService->getTodayActionCount($user);
-
-        if ($todayCount >= $dailyLimit) {
-            return response()->json([
-                'success' => true,
-                'has_action' => false,
-                'action' => null,
-                'message' => 'Daily limit reached',
-                'daily_limit' => $dailyLimit,
-                'today_count' => $todayCount,
-            ]);
-        }
-
-        // Get next action
+        // Get next pending action for this user
         $action = $this->actionQueueService->getNextAction($user);
 
         if (!$action) {
@@ -182,8 +167,6 @@ class ExtensionController extends Controller
                 'has_action' => false,
                 'action' => null,
                 'message' => 'No pending actions',
-                'daily_limit' => $dailyLimit,
-                'today_count' => $todayCount,
             ]);
         }
 
@@ -209,8 +192,6 @@ class ExtensionController extends Controller
                 'has_action' => false,
                 'action' => null,
                 'message' => 'Action was claimed by another request, please retry',
-                'daily_limit' => $dailyLimit,
-                'today_count' => $todayCount,
             ]);
         }
 
@@ -241,9 +222,7 @@ class ExtensionController extends Controller
                     'connection_status' => $action->prospect->connection_status,
                 ],
             ],
-            'daily_limit' => $dailyLimit,
-            'today_count' => $todayCount,
-            'remaining_today' => $dailyLimit - $todayCount - 1,
+            'campaign_limit' => $action->campaign->daily_limit,
         ]);
     }
 

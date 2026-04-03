@@ -169,8 +169,8 @@ const getProspectStatusClass = (status) => {
           <h3 class="text-lg font-semibold text-theme-primary mb-4">Campaign Information</h3>
           <dl class="space-y-3">
             <div>
-              <dt class="text-sm font-medium text-theme-secondary">Daily Limit</dt>
-              <dd class="text-sm text-theme-primary">{{ campaign.daily_limit }} actions/day</dd>
+              <dt class="text-sm font-medium text-theme-secondary">Prospect Limit</dt>
+              <dd class="text-sm text-theme-primary">{{ campaign.daily_limit }} prospects</dd>
             </div>
             <div>
               <dt class="text-sm font-medium text-theme-secondary">Created</dt>

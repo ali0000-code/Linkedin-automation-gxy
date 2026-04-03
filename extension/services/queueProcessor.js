@@ -324,43 +324,33 @@ class QueueProcessor {
   tryAlternativeProfileDetection() {
     console.log('[QueueProcessor] Trying alternative profile detection...');
 
-    // Method 1: Look specifically in the global-nav for profile links
-    // The global-nav is the top navigation bar which always shows the logged-in user
-    const globalNav = document.querySelector('.global-nav');
-    if (globalNav) {
-      // Look for the Me menu area specifically
-      const meArea = globalNav.querySelector('.global-nav__me, .global-nav__me-trigger');
-      if (meArea) {
-        const parentLink = meArea.closest('a[href*="/in/"]');
-        if (parentLink && parentLink.href) {
-          console.log('[QueueProcessor] Found profile link from Me area:', parentLink.href);
-          return parentLink.href;
+    // Method 1 (LinkedIn 2025): On the feed page, the first a[href*="/in/"]
+    // outside nav/header is the logged-in user's sidebar profile card.
+    if (window.location.href.includes('linkedin.com/feed')) {
+      const allLinks = document.querySelectorAll('a[href*="/in/"]');
+      for (const link of allLinks) {
+        if (link.closest('nav') || link.closest('header')) continue;
+        if (link.href && link.href.includes('/in/')) {
+          console.log('[QueueProcessor] Found profile URL from feed sidebar:', link.href);
+          return link.href;
         }
       }
     }
 
-    // Method 2: Feed identity module (only on feed page)
-    // This specifically shows the current logged-in user
-    if (window.location.href.includes('linkedin.com/feed')) {
-      const feedIdentity = document.querySelector('.feed-identity-module a[href*="/in/"]');
-      if (feedIdentity && feedIdentity.href) {
-        console.log('[QueueProcessor] Found profile link from feed identity:', feedIdentity.href);
-        return feedIdentity.href;
+    // Method 2: Legacy selectors
+    const legacySelectors = [
+      '.global-nav__me-content a[href*="/in/"]',
+      '.feed-identity-module a[href*="/in/"]',
+      '.profile-card a[href*="/in/"]'
+    ];
+    for (const sel of legacySelectors) {
+      const link = document.querySelector(sel);
+      if (link && link.href) {
+        console.log('[QueueProcessor] Found profile URL from legacy selector:', link.href);
+        return link.href;
       }
     }
 
-    // Method 3: Try to find the profile photo in nav which links to profile
-    // Be specific - only look in the global nav header area
-    const navPhoto = document.querySelector('.global-nav img.global-nav__me-photo');
-    if (navPhoto) {
-      const parentLink = navPhoto.closest('a[href*="/in/"]');
-      if (parentLink && parentLink.href) {
-        console.log('[QueueProcessor] Found profile link from nav photo:', parentLink.href);
-        return parentLink.href;
-      }
-    }
-
-    // DO NOT check sidebar or left rail - those show the VIEWED profile, not the current user!
     console.log('[QueueProcessor] Could not find current user profile via alternative methods');
     return null;
   }
@@ -523,6 +513,30 @@ class QueueProcessor {
   async reportActionResult(result) {
     if (!this.currentAction) {
       console.warn('[QueueProcessor] No current action to report');
+      return;
+    }
+
+    // If LinkedIn premium limit was hit, pause the campaign and stop processing
+    if (result.pauseCampaign || result.message === 'PREMIUM_LIMIT_REACHED') {
+      console.warn('[QueueProcessor] LinkedIn premium limit reached — pausing campaign');
+      this.notifyStatus('paused', 'LinkedIn personalized invite limit reached (Premium required). Campaign paused.');
+
+      try {
+        // Report the failed action
+        await completeAction(this.currentAction.id, 'failed', null, 'Premium limit reached', false);
+
+        // Pause the campaign via API
+        const campaignId = this.currentAction.campaign_id;
+        if (campaignId) {
+          await backgroundApiCall(`/campaigns/${campaignId}/pause`, 'POST');
+          console.log(`[QueueProcessor] Campaign ${campaignId} paused`);
+        }
+      } catch (error) {
+        console.error('[QueueProcessor] Failed to pause campaign:', error);
+      }
+
+      // Stop the queue processor
+      this.isRunning = false;
       return;
     }
 

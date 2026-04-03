@@ -317,7 +317,7 @@ const isStepValid = computed(() => {
         return campaignData.value.selectedTemplateId !== null && campaignData.value.inviteTemplateId !== null
       }
       if (action?.key === 'visit_follow_connect') {
-        return campaignData.value.selectedTemplateId !== null
+        return campaignData.value.inviteWithNote ? campaignData.value.selectedTemplateId !== null : true
       }
       if (action?.key === 'email_message') {
         return campaignData.value.selectedTemplateId !== null && campaignData.value.fallbackTemplateId !== null

@@ -93,17 +93,22 @@ class GmailSettingService
                 ];
             }
 
-            // Create a test transport to verify credentials
-            // Port 587 uses STARTTLS (tls parameter = false, but encryption happens via STARTTLS)
-            // Port 465 uses direct SSL (tls parameter = true)
+            // Gmail supports port 465 (direct SSL) and 587 (STARTTLS).
+            // Port 587 is often blocked by ISPs/firewalls, so use 465 with SSL.
             $transport = new \Symfony\Component\Mailer\Transport\Smtp\EsmtpTransport(
                 'smtp.gmail.com',
-                587,
-                false // Don't use direct SSL, STARTTLS will be used automatically
+                465,
+                true // Direct SSL (port 465)
             );
 
             $transport->setUsername($setting->email);
             $transport->setPassword($password);
+
+            // Set a short timeout so bad credentials fail fast
+            $stream = $transport->getStream();
+            if (method_exists($stream, 'setTimeout')) {
+                $stream->setTimeout(10);
+            }
 
             // Test the connection
             $transport->start();
@@ -143,11 +148,11 @@ class GmailSettingService
         Config::set('mail.mailers.gmail_user', [
             'transport' => 'smtp',
             'host' => 'smtp.gmail.com',
-            'port' => 587,
-            'encryption' => 'tls',
+            'port' => 465,
+            'encryption' => 'ssl',
             'username' => $setting->email,
             'password' => $setting->getDecryptedAppPassword(),
-            'timeout' => 30,
+            'timeout' => 15,
         ]);
     }
 

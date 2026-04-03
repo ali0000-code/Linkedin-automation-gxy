@@ -3,46 +3,23 @@
 namespace App\Http\Controllers\Auth;
 
 use App\Http\Controllers\Controller;
-use App\Services\AuthService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
-/**
- * LogoutController
- *
- * Handles user logout.
- * Revokes the current access token.
- */
 class LogoutController extends Controller
 {
     /**
-     * The authentication service instance.
-     */
-    protected AuthService $authService;
-
-    /**
-     * Create a new controller instance.
-     *
-     * Dependency injection: Laravel automatically injects AuthService.
-     */
-    public function __construct(AuthService $authService)
-    {
-        $this->authService = $authService;
-    }
-
-    /**
      * Log out the authenticated user.
      *
-     * Revokes the current access token.
-     * The client should discard the token after this.
-     *
-     * @param Request $request
-     * @return JsonResponse
+     * Revokes ALL tokens (webapp + extension) so the extension
+     * is also logged out when the user signs out from the web app.
      */
     public function __invoke(Request $request): JsonResponse
     {
-        // Logout via service layer (revokes current token)
-        $this->authService->logout($request->user());
+        $user = $request->user();
+
+        // Revoke all tokens for this user (webapp + extension)
+        $user->tokens()->delete();
 
         return response()->json([
             'message' => 'Logout successful',

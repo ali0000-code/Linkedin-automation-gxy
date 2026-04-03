@@ -38,83 +38,137 @@ function extractLinkedInIdFromUrl(profileUrl) {
 }
 
 /**
- * Get the MAIN profile action container
- * This is critical to avoid clicking wrong buttons (duplicates elsewhere on page)
- * Based on reference extension: getMainProfileActionContainer()
+ * Find a clickable element (button or link) by its visible text content.
+ * LinkedIn 2025 removed aria-label and uses <span>Text</span> inside buttons/links.
+ * @param {string} text - Exact visible text to match
+ * @param {Element} [scope=document] - Element to search within
+ * @returns {Element|null}
+ */
+function findActionByText(text, scope = document) {
+  // Check buttons and links
+  for (const el of scope.querySelectorAll('button, a[role="button"], a[href]')) {
+    const elText = el.textContent.trim();
+    if (elText === text) return el;
+  }
+  return null;
+}
+
+/**
+ * Find a clickable element by partial text match.
+ * @param {string} partialText - Text to search for (case-insensitive)
+ * @param {Element} [scope=document] - Element to search within
+ * @returns {Element|null}
+ */
+function findActionByPartialText(partialText, scope = document) {
+  const lower = partialText.toLowerCase();
+  for (const el of scope.querySelectorAll('button, a[role="button"], a[href]')) {
+    if (el.textContent.trim().toLowerCase().includes(lower)) return el;
+  }
+  return null;
+}
+
+/**
+ * Find a menu item in the "More" dropdown by text.
+ * LinkedIn 2025: dropdown is [role="menu"], items are [role="menuitem"].
+ * The dropdown appears as a popover attached to body.
+ * @param {string} text - Exact text to match (e.g., "Connect", "Follow")
+ * @returns {Element|null}
+ */
+function findDropdownMenuItem(text) {
+  const menus = document.querySelectorAll('[role="menu"]');
+  for (const menu of menus) {
+    for (const item of menu.querySelectorAll('[role="menuitem"]')) {
+      // Check direct text content and also nested <p> text
+      const itemText = item.textContent.trim();
+      if (itemText.includes(text)) {
+        // Verify it's specifically the right item (not "Report / Block" matching "Block")
+        const p = item.querySelector('p');
+        if (p && p.textContent.trim() === text) return item;
+        // Fallback: if no <p>, check aria-label
+        const ariaLabel = item.getAttribute('aria-label') || '';
+        const innerLabel = item.querySelector('[aria-label]')?.getAttribute('aria-label') || '';
+        if (ariaLabel.includes(text) || innerLabel.includes(text)) return item;
+      }
+    }
+  }
+  return null;
+}
+
+/**
+ * Click the "More" button in the profile action area and wait for dropdown.
+ * @param {Element} actionContainer
+ * @returns {Promise<boolean>} true if dropdown appeared
+ */
+async function clickMoreAndWaitForDropdown(actionContainer) {
+  let moreButton = findActionByText('More', actionContainer);
+  if (!moreButton) {
+    console.log('[ActionExecutor] More button not found in action container');
+    return false;
+  }
+
+  console.log('[ActionExecutor] Clicking More button...');
+  moreButton.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  await sleep(500);
+  moreButton.click();
+  await sleep(2000);
+
+  // Verify dropdown appeared
+  const menu = document.querySelector('[role="menu"]');
+  if (!menu) {
+    console.log('[ActionExecutor] Dropdown did not appear, retrying...');
+    moreButton.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    await sleep(2000);
+  }
+
+  return !!document.querySelector('[role="menu"]');
+}
+
+/**
+ * Get the MAIN profile action container.
+ *
+ * LinkedIn 2025: no class names, no aria-labels on action buttons.
+ * Strategy: find "Message" or "More" by text, then walk up to find a
+ * container that holds multiple action buttons/links.
+ *
  * @returns {Element|null}
  */
 function getMainProfileActionContainer() {
-  const selectors = window.LINKEDIN_SELECTORS;
-  if (!selectors) {
-    console.error('[ActionExecutor] Selectors not loaded');
-    return null;
-  }
+  // Find the "Message" link/button or "More" button by visible text
+  const messageEl = findActionByText('Message') || findActionByText('Connect') || findActionByText('Follow');
 
-  // Find profile action container
-  const containers = document.querySelectorAll(selectors.PROFILE.ACTION_CONTAINER);
-
-  for (const container of containers) {
-    // Validate: container must have at least one action button
-    const hasActionButtons = container.querySelector(selectors.PROFILE.ACTION_BUTTON_CHECK);
-    if (hasActionButtons) {
-      console.log('[ActionExecutor] Found main profile action container');
-      return container;
-    }
-  }
-
-  // Fallback 1: look for section that contains both Message and More buttons
-  const sections = document.querySelectorAll(selectors.PROFILE.FALLBACK_SECTIONS);
-  for (const section of sections) {
-    const messageBtn = section.querySelector('button[aria-label*="Message"]');
-    const moreBtn = section.querySelector('button[aria-label*="More"]');
-    if (messageBtn && moreBtn) {
-      console.log('[ActionExecutor] Found main profile action container (section fallback)');
-      return section;
-    }
-  }
-
-  // Fallback 2: Find Message button and get its parent container
-  // LinkedIn sometimes uses randomized class names, so we find buttons directly
-  const messageButton = document.querySelector('button[aria-label*="Message"]');
-  if (messageButton) {
-    // Go up to find a container that also has the More button
-    let parent = messageButton.parentElement;
+  if (messageEl) {
+    // Walk up to find the container that also has "More" or other action buttons
+    let parent = messageEl.parentElement;
     let attempts = 0;
     while (parent && attempts < 10) {
-      const moreBtn = parent.querySelector('button[aria-label="More actions"], button[aria-label*="More"]');
-      if (moreBtn) {
-        console.log('[ActionExecutor] Found main profile action container (button parent fallback)');
+      const actions = parent.querySelectorAll('button, a[href*="messaging"]');
+      // A good container has at least 2 action elements
+      if (actions.length >= 2) {
+        console.log('[ActionExecutor] Found action container via text-based search');
         return parent;
       }
       parent = parent.parentElement;
       attempts++;
     }
 
-    // If we found Message but not More in parent, still return a reasonable container
-    const container = messageButton.closest('div[class]');
+    // Fallback: return closest meaningful div
+    const container = messageEl.closest('div');
     if (container) {
-      console.log('[ActionExecutor] Found main profile action container (message button container)');
+      console.log('[ActionExecutor] Found action container (closest div fallback)');
       return container;
     }
   }
 
-  // Fallback 3: Find any Connect or Follow button and get container
-  const connectOrFollow = document.querySelector('button[aria-label*="Invite"][aria-label*="connect"], button[aria-label*="Follow"]:not([aria-label*="Following"])');
-  if (connectOrFollow) {
-    let parent = connectOrFollow.parentElement;
-    let attempts = 0;
-    while (parent && attempts < 10) {
-      const moreBtn = parent.querySelector('button[aria-label="More actions"], button[aria-label*="More"]');
-      if (moreBtn) {
-        console.log('[ActionExecutor] Found main profile action container (connect/follow parent fallback)');
-        return parent;
-      }
-      parent = parent.parentElement;
-      attempts++;
+  // Legacy selectors (older LinkedIn)
+  const selectors = window.LINKEDIN_SELECTORS;
+  if (selectors) {
+    const containers = document.querySelectorAll(selectors.PROFILE.ACTION_CONTAINER);
+    for (const container of containers) {
+      if (container.querySelector('button')) return container;
     }
   }
 
-  console.warn('[ActionExecutor] Could not find main profile action container');
+  console.warn('[ActionExecutor] Could not find profile action container');
   return null;
 }
 
@@ -126,76 +180,42 @@ function getMainProfileActionContainer() {
 async function getCurrentUserProfileUrl() {
   console.log('[ActionExecutor] Getting current user profile URL...');
 
-  // Method 1: Profile card in left sidebar (MOST RELIABLE - always shows logged-in user)
-  // This card appears on feed page and has class "profile-card"
-  const profileCardSelectors = [
-    '.profile-card a.profile-card-profile-picture-container[href*="/in/"]',
-    '.profile-card a.profile-card-profile-link[href*="/in/"]',
+  // Method 1 (LinkedIn 2025): On the feed page, the first a[href*="/in/"] that
+  // is NOT inside nav/header is the logged-in user's profile card in the left sidebar.
+  // The link contains the user's name and headline.
+  const allProfileLinks = document.querySelectorAll('a[href*="/in/"]');
+  for (const link of allProfileLinks) {
+    // Skip links inside the global nav bar (other people's profiles in notifications etc.)
+    if (link.closest('nav') || link.closest('header')) continue;
+    if (link.href && link.href.includes('/in/')) {
+      console.log('[ActionExecutor] Found profile URL from feed page link:', link.href);
+      return link.href;
+    }
+  }
+
+  // Method 2: Legacy selectors (older LinkedIn UI)
+  const legacySelectors = [
     '.profile-card a[href*="/in/"]',
-    '.artdeco-card.profile-card a[href*="/in/"]'
-  ];
-
-  for (const selector of profileCardSelectors) {
-    const profileLink = document.querySelector(selector);
-    if (profileLink && profileLink.href && profileLink.href.includes('/in/')) {
-      console.log('[ActionExecutor] Found profile URL from profile card:', profileLink.href);
-      return profileLink.href;
-    }
-  }
-
-  // Method 2: Feed identity module (older LinkedIn UI)
-  const feedProfileSelectors = [
-    '.feed-identity-module__actor-meta a[href*="/in/"]',
     '.feed-identity-module a[href*="/in/"]',
-    '.feed-identity-module__content a[href*="/in/"]'
+    '.global-nav__me-content a[href*="/in/"]'
   ];
 
-  for (const selector of feedProfileSelectors) {
-    const feedProfile = document.querySelector(selector);
-    if (feedProfile && feedProfile.href) {
-      console.log('[ActionExecutor] Found profile URL from feed identity module:', feedProfile.href);
-      return feedProfile.href;
+  for (const selector of legacySelectors) {
+    const link = document.querySelector(selector);
+    if (link && link.href && link.href.includes('/in/')) {
+      console.log('[ActionExecutor] Found profile URL from legacy selector:', link.href);
+      return link.href;
     }
   }
 
-  // Method 3: Check the global nav "Me" dropdown (fallback)
-  const meButtonSelectors = [
-    '.global-nav__me-trigger',
-    '.global-nav__me button',
-    '.global-nav__me'
-  ];
-
-  let meButton = null;
-  for (const selector of meButtonSelectors) {
-    meButton = document.querySelector(selector);
-    if (meButton) break;
-  }
-
-  if (meButton) {
-    console.log('[ActionExecutor] Clicking Me button to find profile...');
-    meButton.click();
-    await sleep(1500);
-
-    const dropdownSelectors = [
-      '.global-nav__me-content a[href*="/in/"]',
-      '.artdeco-dropdown__content-inner a[href*="/in/"]',
-      '.artdeco-dropdown__content a[href*="/in/"]'
-    ];
-
-    for (const selector of dropdownSelectors) {
-      const link = document.querySelector(selector);
-      if (link && link.href && link.href.includes('/in/')) {
-        const url = link.href;
-        console.log('[ActionExecutor] Found profile URL from Me dropdown:', url);
-        document.body.click();
-        await sleep(200);
-        return url;
-      }
+  // Method 3: Check stored profile URL from chrome.storage
+  try {
+    const stored = await chrome.storage.local.get('user_profile_url');
+    if (stored.user_profile_url) {
+      console.log('[ActionExecutor] Found profile URL from storage:', stored.user_profile_url);
+      return stored.user_profile_url;
     }
-
-    document.body.click();
-    await sleep(200);
-  }
+  } catch (e) { /* ignore */ }
 
   console.error('[ActionExecutor] Could not find current user profile URL');
   console.log('[ActionExecutor] Current page:', window.location.href);
@@ -310,82 +330,38 @@ async function executeInvite(action) {
     await sleep(500);
 
     // Check if already pending
-    const pendingButton = actionContainer.querySelector(selectors.PROFILE.PENDING_BUTTON);
+    const pendingButton = findActionByText('Pending', actionContainer) ||
+                          actionContainer.querySelector(selectors.PROFILE.PENDING_BUTTON);
     if (pendingButton) {
       console.log('[ActionExecutor] Connection request already pending');
       return { success: true, message: 'Connection request already pending' };
     }
 
-    // Try to find visible Connect button first (primary button) with retries
-    let connectButton = null;
-    let connectRetry = 0;
-    const maxConnectRetries = 3;
+    // LinkedIn 2025: Either "Connect" or "Follow" is the primary button.
+    // If Connect is not visible, it's inside the "More" dropdown.
+    let connectButton = findActionByText('Connect', actionContainer);
 
-    while (!connectButton && connectRetry < maxConnectRetries) {
-      connectButton = actionContainer.querySelector(selectors.PROFILE.CONNECT_BUTTON);
+    if (connectButton) {
+      console.log('[ActionExecutor] Found Connect as primary button');
+    } else {
+      // Connect not visible — it's in the More dropdown
+      console.log('[ActionExecutor] Connect not visible, checking More dropdown...');
+      const dropdownOpened = await clickMoreAndWaitForDropdown(actionContainer);
+      if (!dropdownOpened) {
+        return { success: false, message: 'Could not open More dropdown' };
+      }
+
+      connectButton = findDropdownMenuItem('Connect');
       if (!connectButton) {
-        connectRetry++;
-        console.log(`[ActionExecutor] Connect button not visible yet, retry ${connectRetry}/${maxConnectRetries}...`);
-        await sleep(1000);
-      }
-    }
-
-    // If Connect not visible after retries, check More menu
-    if (!connectButton) {
-      console.log('[ActionExecutor] Connect button not visible, checking More menu...');
-      await sleep(1000);
-
-      // Find More button in container with retries
-      let moreButton = null;
-      let moreRetry = 0;
-      const maxMoreRetries = 3;
-
-      while (!moreButton && moreRetry < maxMoreRetries) {
-        moreButton = actionContainer.querySelector(selectors.PROFILE.MORE_BUTTON);
-
-        // Fallback: look for button with text "More"
-        if (!moreButton) {
-          const buttons = actionContainer.querySelectorAll('button');
-          for (const btn of buttons) {
-            if (btn.textContent.trim() === 'More') {
-              moreButton = btn;
-              break;
-            }
-          }
-        }
-
-        if (!moreButton) {
-          moreRetry++;
-          console.log(`[ActionExecutor] More button not found, retry ${moreRetry}/${maxMoreRetries}...`);
-          await sleep(1500);
-        }
-      }
-
-      if (!moreButton) {
-        console.error('[ActionExecutor] More button not found after retries');
-        return { success: false, message: 'Could not find Connect or More button' };
-      }
-
-      // Scroll More button into view
-      moreButton.scrollIntoView({ behavior: 'smooth', block: 'center' });
-      await sleep(500);
-
-      console.log('[ActionExecutor] Clicking More button...');
-      moreButton.click();
-
-      // Wait for dropdown to appear
-      await sleep(2000);
-
-      // Find Connect in dropdown (dropdown appears in body, not in container)
-      connectButton = document.querySelector(selectors.PROFILE.DROPDOWN_CONNECT);
-
-      if (!connectButton) {
-        console.error('[ActionExecutor] Connect button not found in More menu');
+        // Close dropdown
+        document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+        await sleep(300);
         return { success: false, message: 'Connect option not found in More menu' };
       }
-
-      await sleep(500);
+      console.log('[ActionExecutor] Found Connect in More dropdown');
     }
+
+    await sleep(300);
 
     // Click Connect button
     console.log('[ActionExecutor] Clicking Connect button...');
@@ -395,18 +371,39 @@ async function executeInvite(action) {
     console.log('[ActionExecutor] Waiting for connection modal...');
     await sleep(3000);
 
-    // Check for Add note and Send without note buttons
-    const addNoteButton = document.querySelector(selectors.CONNECTION_MODAL.ADD_NOTE_BUTTON);
-    const sendWithoutNoteButton = document.querySelector(selectors.CONNECTION_MODAL.SEND_WITHOUT_NOTE);
+    // Check for Add note and Send without note buttons (text-based + legacy aria-label)
+    const addNoteButton = findActionByText('Add a note') ||
+                          document.querySelector(selectors.CONNECTION_MODAL.ADD_NOTE_BUTTON);
+    const sendWithoutNoteButton = findActionByText('Send without a note') ||
+                                  findActionByText('Send') ||
+                                  document.querySelector(selectors.CONNECTION_MODAL.SEND_WITHOUT_NOTE);
+
+    // Check for premium upsell / limit reached — LinkedIn shows this when
+    // non-premium users exceed 3 personalized invites per month
+    const modalContent = document.querySelector('.artdeco-modal__content') ||
+                         document.querySelector('[role="dialog"]');
+    const modalText = modalContent?.textContent || '';
+    const isPremiumUpsell = modalText.includes('Premium') && (
+      modalText.includes('Reactivate') || modalText.includes('upgrade') ||
+      modalText.includes('Upgrade') || modalText.includes('Subscribe') ||
+      modalText.includes('personalized invite')
+    );
+
+    if (isPremiumUpsell && !addNoteButton && !sendWithoutNoteButton) {
+      console.warn('[ActionExecutor] LinkedIn premium limit reached — pausing campaign');
+      const dismissButton = findActionByText('Dismiss') || findActionByText('Got it') ||
+                            findActionByText('Not now') ||
+                            document.querySelector('button[aria-label="Dismiss"]');
+      if (dismissButton) { dismissButton.click(); await sleep(500); }
+      return { success: false, message: 'PREMIUM_LIMIT_REACHED', pauseCampaign: true };
+    }
 
     // If neither button exists, LinkedIn limit may have been reached
     if (!addNoteButton && !sendWithoutNoteButton) {
       console.warn('[ActionExecutor] LinkedIn connection limit may have been reached');
-      const dismissButton = document.querySelector(selectors.CONNECTION_MODAL.DISMISS_BUTTON);
-      if (dismissButton) {
-        dismissButton.click();
-        await sleep(500);
-      }
+      const dismissButton = findActionByText('Dismiss') || findActionByText('Got it') ||
+                            document.querySelector('button[aria-label="Dismiss"]');
+      if (dismissButton) { dismissButton.click(); await sleep(500); }
       return { success: false, message: 'LinkedIn connection limit reached or modal did not appear' };
     }
 
@@ -440,13 +437,27 @@ async function executeInvite(action) {
       console.log('[ActionExecutor] Found note textarea, typing message...');
       await sleep(500);
 
-      // Focus and set value
+      // Focus and set value — must trigger multiple events for LinkedIn's
+      // ember framework to recognize the change and enable the Send button
       noteTextarea.focus();
+      noteTextarea.click();
       await sleep(300);
-      noteTextarea.value = message;
 
-      // Trigger input event so LinkedIn recognizes the change
+      // Clear existing content and set new value
+      noteTextarea.value = '';
       noteTextarea.dispatchEvent(new Event('input', { bubbles: true }));
+      await sleep(100);
+
+      // Set the message using native setter to bypass framework wrappers
+      const nativeSetter = Object.getOwnPropertyDescriptor(
+        window.HTMLTextAreaElement.prototype, 'value'
+      ).set;
+      nativeSetter.call(noteTextarea, message);
+
+      // Fire all relevant events so LinkedIn's UI updates (enables Send button)
+      noteTextarea.dispatchEvent(new Event('input', { bubbles: true }));
+      noteTextarea.dispatchEvent(new Event('change', { bubbles: true }));
+      noteTextarea.dispatchEvent(new KeyboardEvent('keyup', { bubbles: true }));
       await sleep(500);
 
       console.log('[ActionExecutor] Message entered successfully');
@@ -455,7 +466,9 @@ async function executeInvite(action) {
       console.log('[ActionExecutor] Looking for Send button...');
       await sleep(500);
 
-      const sendButton = document.querySelector(selectors.CONNECTION_MODAL.SEND_BUTTON);
+      const sendButton = findActionByText('Send invitation') ||
+                         findActionByText('Send') ||
+                         document.querySelector(selectors.CONNECTION_MODAL.SEND_BUTTON);
       if (!sendButton) {
         console.error('[ActionExecutor] Send button not found');
         return { success: false, message: 'Send button not found' };
@@ -540,125 +553,44 @@ async function executeFollow(action) {
     // Wait for page to fully stabilize
     await sleep(1500);
 
-    // Check if already following (look for "Following" button ONLY in main action container)
-    const alreadyFollowing = actionContainer.querySelector('button[aria-label*="Following"]');
+    // Check if already following
+    const alreadyFollowing = findActionByText('Following', actionContainer) ||
+                             actionContainer.querySelector('button[aria-label*="Following"]');
     if (alreadyFollowing) {
       console.log('[ActionExecutor] Already following this person');
       return { success: true, message: 'Already following this person' };
     }
 
-    // Try to find visible Follow button ONLY within the main action container
-    // This avoids clicking Follow buttons for recommended users in sidebar
-    let followButton = actionContainer.querySelector(selectors.PROFILE.FOLLOW_BUTTON) ||
-                       actionContainer.querySelector('button[aria-label*="Follow"]:not([aria-label*="Following"])');
+    // LinkedIn 2025: Either "Follow" or "Connect" is the primary button.
+    // If Follow is not visible, it's inside the "More" dropdown.
+    let followButton = findActionByText('Follow', actionContainer);
 
-    // Verify the button is for the main profile (should be in action container)
     if (followButton) {
-      console.log('[ActionExecutor] Found Follow button in main action container, clicking...');
+      console.log('[ActionExecutor] Found Follow as primary button, clicking...');
       followButton.click();
       await sleep(1000);
-      console.log('[ActionExecutor] Now following this person');
       return { success: true, message: `Now following ${action.prospect.full_name}` };
     }
 
-    // Follow not visible in action container, need to check More menu
-    console.log('[ActionExecutor] Follow button not visible in action container, checking More menu...');
-    await sleep(1000);
-
-    // Find More button ONLY within the main action container - try multiple times
-    let moreButton = null;
-    let retryCount = 0;
-    const maxRetries = 3;
-
-    while (!moreButton && retryCount < maxRetries) {
-      moreButton = actionContainer.querySelector(selectors.PROFILE.MORE_BUTTON) ||
-                   actionContainer.querySelector('button[aria-label*="More actions"]') ||
-                   actionContainer.querySelector('button[aria-label="More"]');
-
-      // Fallback: look for button containing "More" text within action container only
-      if (!moreButton) {
-        const buttons = actionContainer.querySelectorAll('button');
-        for (const btn of buttons) {
-          const text = btn.textContent.trim();
-          const ariaLabel = btn.getAttribute('aria-label') || '';
-          if (text === 'More' || ariaLabel.includes('More')) {
-            moreButton = btn;
-            console.log('[ActionExecutor] Found More button via text/aria search in action container');
-            break;
-          }
-        }
-      }
-
-      if (!moreButton) {
-        retryCount++;
-        console.log(`[ActionExecutor] More button not found, retry ${retryCount}/${maxRetries}...`);
-        await sleep(1500);
-      }
+    // Follow not visible — it's in the More dropdown
+    console.log('[ActionExecutor] Follow not visible, checking More dropdown...');
+    const dropdownOpened = await clickMoreAndWaitForDropdown(actionContainer);
+    if (!dropdownOpened) {
+      return { success: false, message: 'Could not open More dropdown' };
     }
 
-    if (!moreButton) {
-      console.error('[ActionExecutor] More button not found in action container after retries');
-      return { success: false, message: 'Could not find Follow or More button in main profile actions' };
-    }
-
-    // Scroll the More button into view to ensure it's clickable
-    moreButton.scrollIntoView({ behavior: 'smooth', block: 'center' });
-    await sleep(500);
-
-    console.log('[ActionExecutor] Clicking More button...');
-    moreButton.click();
-
-    // Wait for dropdown to appear
-    await sleep(1500);
-
-    // Find Follow in dropdown - look for the dropdown item with aria-label containing "Follow"
-    // The HTML structure is: div.artdeco-dropdown__item[aria-label*="Follow"][role="button"]
-    followButton = document.querySelector('div.artdeco-dropdown__item[aria-label*="Follow"][role="button"]') ||
-                   document.querySelector('.artdeco-dropdown__content div[aria-label*="Follow"][role="button"]');
-
-    // Fallback: search all dropdown items for one with "Follow" in aria-label
+    followButton = findDropdownMenuItem('Follow');
     if (!followButton) {
-      const dropdownItems = document.querySelectorAll('div.artdeco-dropdown__item[role="button"]');
-      console.log(`[ActionExecutor] Searching ${dropdownItems.length} dropdown items for Follow...`);
-
-      for (const item of dropdownItems) {
-        const ariaLabel = item.getAttribute('aria-label') || '';
-        const text = item.textContent.trim();
-        console.log(`[ActionExecutor] Dropdown item: aria-label="${ariaLabel}", text="${text}"`);
-
-        // Match aria-label starting with "Follow " (e.g., "Follow somia faisal")
-        // but not "Following" or "Unfollow"
-        if (ariaLabel.startsWith('Follow ') && !ariaLabel.includes('Following') && !ariaLabel.includes('Unfollow')) {
-          followButton = item;
-          console.log('[ActionExecutor] Found Follow button via aria-label search');
-          break;
-        }
-
-        // Also check if text content is exactly "Follow"
-        if (text === 'Follow') {
-          followButton = item;
-          console.log('[ActionExecutor] Found Follow button via text search');
-          break;
-        }
-      }
-    }
-
-    if (!followButton) {
-      // Close dropdown by pressing Escape
-      document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', keyCode: 27 }));
+      document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
       await sleep(300);
-      console.error('[ActionExecutor] Follow button not found in More menu dropdown');
       return { success: false, message: 'Follow option not found in More menu' };
     }
 
+    console.log('[ActionExecutor] Found Follow in More dropdown, clicking...');
     await sleep(300);
-
-    // Click Follow button in dropdown
-    console.log('[ActionExecutor] Clicking Follow button in dropdown...');
     followButton.click();
     await sleep(1000);
 
-    console.log('[ActionExecutor] Now following this person');
     return { success: true, message: `Now following ${action.prospect.full_name}` };
 
   } catch (error) {
@@ -1110,19 +1042,9 @@ async function executeSmartConnect(action) {
     // Wait for buttons to fully load
     await sleep(2000);
 
-    // Check connection status by looking for Message button (only visible for 1st degree connections)
-    // Retry a few times to make sure the button has loaded
-    let messageButton = null;
-    for (let i = 0; i < 3; i++) {
-      messageButton = actionContainer.querySelector(selectors.PROFILE.MESSAGE_BUTTON);
-      if (messageButton && messageButton.offsetParent !== null) {
-        break;
-      }
-      console.log(`[ActionExecutor] Checking for Message button... (${i + 1}/3)`);
-      await sleep(1000);
-    }
-
-    const isConnected = messageButton && messageButton.offsetParent !== null; // Check if visible
+    // Check connection status by looking for Message button (visible for 1st degree connections)
+    let messageButton = findActionByText('Message', actionContainer);
+    const isConnected = !!messageButton;
 
     console.log('[ActionExecutor] Smart Connect - Is connected:', isConnected);
 
@@ -1224,64 +1146,43 @@ async function executeSmartConnect(action) {
       const inviteMessage = action.action_data?.invite_message;
 
       // Check if already pending
-      const pendingButton = actionContainer.querySelector(selectors.PROFILE.PENDING_BUTTON);
-      if (pendingButton) {
-        console.log('[ActionExecutor] Connection request already pending');
+      if (findActionByText('Pending', actionContainer)) {
         return { success: true, message: 'Connection request already pending', executed_action: 'none' };
       }
 
-      // Find Connect button with retries
-      let connectButton = null;
-      let connectRetry = 0;
-      const maxConnectRetries = 3;
-
-      while (!connectButton && connectRetry < maxConnectRetries) {
-        connectButton = actionContainer.querySelector(selectors.PROFILE.CONNECT_BUTTON);
-        if (!connectButton) {
-          connectRetry++;
-          console.log(`[ActionExecutor] Connect button not visible, retry ${connectRetry}/${maxConnectRetries}...`);
-          await sleep(1000);
-        }
-      }
-
-      // If Connect not visible after retries, check More menu
+      // Find Connect — primary or in More dropdown
+      let connectButton = findActionByText('Connect', actionContainer);
       if (!connectButton) {
-        let moreButton = actionContainer.querySelector(selectors.PROFILE.MORE_BUTTON);
-        if (!moreButton) {
-          const buttons = actionContainer.querySelectorAll('button');
-          for (const btn of buttons) {
-            if (btn.textContent.trim() === 'More') {
-              moreButton = btn;
-              break;
-            }
-          }
-        }
-
-        if (!moreButton) {
-          return { success: false, message: 'Could not find Connect or More button' };
-        }
-
-        moreButton.scrollIntoView({ behavior: 'smooth', block: 'center' });
-        await sleep(500);
-        moreButton.click();
-        await sleep(2000);
-        connectButton = document.querySelector(selectors.PROFILE.DROPDOWN_CONNECT);
-
-        if (!connectButton) {
-          return { success: false, message: 'Connect option not found in More menu' };
+        const dropdownOpened = await clickMoreAndWaitForDropdown(actionContainer);
+        if (dropdownOpened) {
+          connectButton = findDropdownMenuItem('Connect');
         }
       }
 
-      // Click Connect button
+      if (!connectButton) {
+        return { success: false, message: 'Could not find Connect button' };
+      }
+
       connectButton.click();
       await sleep(3000);
 
-      // Check for Add note option
-      const addNoteButton = document.querySelector(selectors.CONNECTION_MODAL.ADD_NOTE_BUTTON);
-      const sendWithoutNoteButton = document.querySelector(selectors.CONNECTION_MODAL.SEND_WITHOUT_NOTE);
+      // Handle connection modal
+      const addNoteButton = findActionByText('Add a note') ||
+                            document.querySelector(selectors.CONNECTION_MODAL.ADD_NOTE_BUTTON);
+      const sendWithoutNoteButton = findActionByText('Send without a note') ||
+                                    findActionByText('Send') ||
+                                    document.querySelector(selectors.CONNECTION_MODAL.SEND_WITHOUT_NOTE);
+
+      // Check premium upsell
+      const modalText = (document.querySelector('.artdeco-modal__content') || document.querySelector('[role="dialog"]'))?.textContent || '';
+      if (modalText.includes('Premium') && (modalText.includes('Reactivate') || modalText.includes('upgrade') || modalText.includes('Upgrade'))) {
+        const dismissBtn = findActionByText('Dismiss') || findActionByText('Got it') || document.querySelector('button[aria-label="Dismiss"]');
+        if (dismissBtn) dismissBtn.click();
+        return { success: false, message: 'PREMIUM_LIMIT_REACHED', pauseCampaign: true };
+      }
 
       if (!addNoteButton && !sendWithoutNoteButton) {
-        const dismissButton = document.querySelector(selectors.CONNECTION_MODAL.DISMISS_BUTTON);
+        const dismissButton = findActionByText('Dismiss') || document.querySelector('button[aria-label="Dismiss"]');
         if (dismissButton) dismissButton.click();
         return { success: false, message: 'LinkedIn connection limit may have been reached' };
       }
@@ -1291,26 +1192,32 @@ async function executeSmartConnect(action) {
         addNoteButton.click();
         await sleep(2000);
 
-        const noteTextarea = document.querySelector(selectors.CONNECTION_MODAL.NOTE_TEXTAREA);
+        const noteTextarea = document.querySelector('textarea[name="message"]') ||
+                             document.querySelector(selectors.CONNECTION_MODAL.NOTE_TEXTAREA);
         if (noteTextarea) {
           noteTextarea.focus();
-          noteTextarea.value = inviteMessage;
+          noteTextarea.click();
+          await sleep(300);
+          const nativeSetter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value').set;
+          nativeSetter.call(noteTextarea, inviteMessage);
           noteTextarea.dispatchEvent(new Event('input', { bubbles: true }));
+          noteTextarea.dispatchEvent(new Event('change', { bubbles: true }));
+          noteTextarea.dispatchEvent(new KeyboardEvent('keyup', { bubbles: true }));
           await sleep(500);
+        }
+
+        const sendButton = findActionByText('Send invitation') || findActionByText('Send') ||
+                           document.querySelector(selectors.CONNECTION_MODAL.SEND_BUTTON);
+        if (sendButton && !sendButton.disabled) {
+          sendButton.click();
+          await sleep(1000);
+          return { success: true, message: 'Connection request sent with note', executed_action: 'invite' };
         }
       }
 
-      // Send the request
-      const sendButton = document.querySelector(selectors.CONNECTION_MODAL.SEND_BUTTON);
-      if (sendButton && !sendButton.disabled) {
-        sendButton.click();
-        await sleep(1000);
-        console.log('[ActionExecutor] Smart Connect: Connection request sent with note');
-        return { success: true, message: 'Connection request sent', executed_action: 'invite' };
-      } else if (sendWithoutNoteButton) {
+      if (sendWithoutNoteButton) {
         sendWithoutNoteButton.click();
         await sleep(1000);
-        console.log('[ActionExecutor] Smart Connect: Connection request sent without note');
         return { success: true, message: 'Connection request sent (no note)', executed_action: 'invite' };
       }
 
@@ -1389,21 +1296,32 @@ async function executeWarmConnect(action) {
     // Step 2: Follow
     console.log('[ActionExecutor] Warm Connect Step 2: Following profile...');
 
-    // Try to find follow button with retries
-    let followButton = null;
-    for (let i = 0; i < 3; i++) {
-      followButton = actionContainer.querySelector(selectors.PROFILE.FOLLOW_BUTTON);
-      if (followButton) break;
-      console.log(`[ActionExecutor] Follow button not found, retry ${i + 1}/3...`);
-      await sleep(1000);
-    }
-
-    if (followButton && !followButton.textContent.includes('Following')) {
-      followButton.click();
-      await sleep(1500);
-      console.log('[ActionExecutor] Followed profile');
+    // Check if already following
+    const alreadyFollowing = findActionByText('Following', actionContainer);
+    if (alreadyFollowing) {
+      console.log('[ActionExecutor] Already following');
     } else {
-      console.log('[ActionExecutor] Already following or follow button not found');
+      // Follow button could be primary or in More dropdown
+      let followButton = findActionByText('Follow', actionContainer);
+      if (followButton) {
+        followButton.click();
+        await sleep(1500);
+        console.log('[ActionExecutor] Followed profile');
+      } else {
+        // Try More dropdown for Follow
+        const dropdownOpened = await clickMoreAndWaitForDropdown(actionContainer);
+        if (dropdownOpened) {
+          const followMenuItem = findDropdownMenuItem('Follow');
+          if (followMenuItem) {
+            followMenuItem.click();
+            await sleep(1500);
+            console.log('[ActionExecutor] Followed via More dropdown');
+          }
+          // Close dropdown if still open
+          document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+          await sleep(300);
+        }
+      }
     }
 
     await sleep(getRandomDelay(1000, 2000));
@@ -1412,58 +1330,18 @@ async function executeWarmConnect(action) {
     console.log('[ActionExecutor] Warm Connect Step 3: Sending connection request...');
 
     // Check if already pending
-    const pendingButton = actionContainer.querySelector(selectors.PROFILE.PENDING_BUTTON);
+    const pendingButton = findActionByText('Pending', actionContainer);
     if (pendingButton) {
       return { success: true, message: 'Visited, followed. Connection already pending.' };
     }
 
-    // Check if already connected (retry a few times to make sure buttons are loaded)
-    let messageButton = null;
-    for (let i = 0; i < 3; i++) {
-      messageButton = actionContainer.querySelector(selectors.PROFILE.MESSAGE_BUTTON);
-      if (messageButton && messageButton.offsetParent !== null) {
-        break;
-      }
-      await sleep(1000);
-    }
-
-    if (messageButton && messageButton.offsetParent !== null) {
-      return { success: true, message: 'Visited, followed. Already connected.' };
-    }
-
-    // Find Connect button with retries
-    let connectButton = null;
-    let connectRetry = 0;
-    const maxConnectRetries = 3;
-
-    while (!connectButton && connectRetry < maxConnectRetries) {
-      connectButton = actionContainer.querySelector(selectors.PROFILE.CONNECT_BUTTON);
-      if (!connectButton) {
-        connectRetry++;
-        console.log(`[ActionExecutor] Connect button not visible, retry ${connectRetry}/${maxConnectRetries}...`);
-        await sleep(1000);
-      }
-    }
+    // Find Connect — primary button or in More dropdown
+    let connectButton = findActionByText('Connect', actionContainer);
 
     if (!connectButton) {
-      // Try More menu
-      let moreButton = actionContainer.querySelector(selectors.PROFILE.MORE_BUTTON);
-      if (!moreButton) {
-        const buttons = actionContainer.querySelectorAll('button');
-        for (const btn of buttons) {
-          if (btn.textContent.trim() === 'More') {
-            moreButton = btn;
-            break;
-          }
-        }
-      }
-
-      if (moreButton) {
-        moreButton.scrollIntoView({ behavior: 'smooth', block: 'center' });
-        await sleep(500);
-        moreButton.click();
-        await sleep(2000);
-        connectButton = document.querySelector(selectors.PROFILE.DROPDOWN_CONNECT);
+      const dropdownOpened = await clickMoreAndWaitForDropdown(actionContainer);
+      if (dropdownOpened) {
+        connectButton = findDropdownMenuItem('Connect');
       }
     }
 
@@ -1475,12 +1353,23 @@ async function executeWarmConnect(action) {
     connectButton.click();
     await sleep(3000);
 
-    // Handle connection modal
-    const addNoteButton = document.querySelector(selectors.CONNECTION_MODAL.ADD_NOTE_BUTTON);
-    const sendWithoutNoteButton = document.querySelector(selectors.CONNECTION_MODAL.SEND_WITHOUT_NOTE);
+    // Handle connection modal — detect premium upsell
+    const addNoteButton = findActionByText('Add a note') ||
+                          document.querySelector(selectors.CONNECTION_MODAL.ADD_NOTE_BUTTON);
+    const sendWithoutNoteButton = findActionByText('Send without a note') ||
+                                  findActionByText('Send') ||
+                                  document.querySelector(selectors.CONNECTION_MODAL.SEND_WITHOUT_NOTE);
+
+    // Check for premium upsell
+    const modalText = (document.querySelector('.artdeco-modal__content') || document.querySelector('[role="dialog"]'))?.textContent || '';
+    if (modalText.includes('Premium') && (modalText.includes('Reactivate') || modalText.includes('upgrade') || modalText.includes('Upgrade'))) {
+      const dismissBtn = findActionByText('Dismiss') || findActionByText('Got it') || document.querySelector('button[aria-label="Dismiss"]');
+      if (dismissBtn) dismissBtn.click();
+      return { success: false, message: 'PREMIUM_LIMIT_REACHED', pauseCampaign: true };
+    }
 
     if (!addNoteButton && !sendWithoutNoteButton) {
-      const dismissButton = document.querySelector(selectors.CONNECTION_MODAL.DISMISS_BUTTON);
+      const dismissButton = findActionByText('Dismiss') || document.querySelector('button[aria-label="Dismiss"]');
       if (dismissButton) dismissButton.click();
       return { success: false, message: 'LinkedIn connection limit may have been reached' };
     }

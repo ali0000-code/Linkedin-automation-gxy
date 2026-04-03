@@ -82,11 +82,17 @@ class ActionQueueService
             return 0;
         }
 
-        // Get all pending prospects in this campaign
-        $campaignProspects = $campaign->campaignProspects()
+        // Get pending prospects, limited by campaign's prospect limit (daily_limit column).
+        // If limit is set, only generate actions for that many prospects.
+        $query = $campaign->campaignProspects()
             ->pending()
-            ->with('prospect')
-            ->get();
+            ->with('prospect');
+
+        if ($campaign->daily_limit && $campaign->daily_limit > 0) {
+            $query->limit($campaign->daily_limit);
+        }
+
+        $campaignProspects = $query->get();
 
         if ($campaignProspects->isEmpty()) {
             Log::warning("Campaign {$campaign->id} has no pending prospects");

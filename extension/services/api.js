@@ -53,7 +53,12 @@ async function apiCall(endpoint, method = 'GET', body = null) {
 
     // Check if response is ok
     if (!response.ok) {
-      // Create error object with status and message
+      // If token was revoked (user logged out from web app), clear extension auth
+      if (response.status === 401) {
+        console.log('[API] Token revoked (401) — clearing extension auth');
+        await chrome.storage.local.remove(['auth_token', 'user_data']);
+      }
+
       const error = new Error(data.message || 'API request failed');
       error.status = response.status;
       error.errors = data.errors || {};

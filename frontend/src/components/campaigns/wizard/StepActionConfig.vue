@@ -295,48 +295,76 @@
           <ol class="mt-1 list-decimal list-inside space-y-1">
             <li>Visit the prospect's LinkedIn profile</li>
             <li>Follow their profile</li>
-            <li>Send a connection request with your note</li>
+            <li>Send a connection request (with or without note)</li>
           </ol>
           <p class="mt-2 text-xs">This sequence increases acceptance rates by building familiarity first.</p>
         </div>
       </div>
     </div>
 
-    <div class="p-4 border border-theme rounded-lg">
-      <div class="flex items-center mb-3">
-        <div class="w-8 h-8 rounded-full bg-linkedin flex items-center justify-center mr-3">
-          <svg class="w-4 h-4 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z" />
-          </svg>
-        </div>
-        <div>
-          <div class="text-sm font-medium text-theme-primary">Connection Request Note</div>
-          <div class="text-xs text-theme-muted">Message sent with connection request (max 300 chars)</div>
+    <div class="space-y-4">
+      <!-- Send without note -->
+      <div
+        @click="$emit('update', { inviteWithNote: false, selectedTemplateId: null })"
+        :class="[
+          'p-4 border-2 rounded-lg cursor-pointer',
+          !campaignData.inviteWithNote ? 'border-linkedin bg-blue-50' : 'border-theme'
+        ]"
+      >
+        <div class="flex items-center">
+          <input type="radio" :checked="!campaignData.inviteWithNote" class="w-4 h-4 text-linkedin focus:ring-linkedin" />
+          <div class="ml-3">
+            <div class="text-sm font-medium text-theme-primary">Connect without note</div>
+            <div class="text-xs text-theme-muted">Visit, follow, then send connection request without a message</div>
+          </div>
         </div>
       </div>
 
-      <label class="block text-sm font-medium text-theme-secondary mb-2">
-        Invitation Template <span class="text-red-500">*</span>
-      </label>
-      <div v-if="invitationTemplates.length === 0" class="text-sm text-theme-muted p-3 bg-theme-overlay rounded-lg">
-        No invitation templates found. Please create one first.
-      </div>
-      <template v-else>
-        <select
-          :value="campaignData.selectedTemplateId || ''"
-          @change="$emit('update', { selectedTemplateId: parseInt($event.target.value) })"
-          class="w-full px-4 py-2 border border-theme rounded-lg focus:ring-2 focus:ring-linkedin focus:border-transparent"
-        >
-          <option value="">Select invitation template...</option>
-          <option v-for="template in invitationTemplates" :key="template.id" :value="template.id">
-            {{ template.name }}
-          </option>
-        </select>
-
-        <div v-if="campaignData.selectedTemplateId" class="mt-2 p-2 bg-theme-overlay rounded text-sm text-theme-secondary">
-          {{ invitationTemplates.find(t => t.id === campaignData.selectedTemplateId)?.content }}
+      <!-- Send with note -->
+      <div
+        @click="$emit('update', { inviteWithNote: true })"
+        :class="[
+          'p-4 border-2 rounded-lg cursor-pointer',
+          campaignData.inviteWithNote ? 'border-linkedin bg-blue-50' : 'border-theme'
+        ]"
+      >
+        <div class="flex items-center">
+          <input type="radio" :checked="campaignData.inviteWithNote" class="w-4 h-4 text-linkedin focus:ring-linkedin" />
+          <div class="ml-3">
+            <div class="text-sm font-medium text-theme-primary">Connect with personalized note</div>
+            <div class="text-xs text-theme-muted">Visit, follow, then send connection request with a message (max 300 chars)</div>
+          </div>
         </div>
-      </template>
+      </div>
+
+      <!-- Template selection (only when with note) -->
+      <div v-if="campaignData.inviteWithNote" class="ml-7 mt-4">
+        <label class="block text-sm font-medium text-theme-secondary mb-2">
+          Select Invitation Template
+        </label>
+        <div v-if="invitationTemplates.length === 0" class="text-sm text-theme-muted p-4 bg-theme-overlay rounded-lg">
+          No invitation templates found. Please create one first in Message Templates.
+        </div>
+        <template v-else>
+          <select
+            :value="campaignData.selectedTemplateId || ''"
+            @change="$emit('update', { selectedTemplateId: parseInt($event.target.value) })"
+            class="w-full px-4 py-2 border border-theme rounded-lg focus:ring-2 focus:ring-linkedin focus:border-transparent"
+          >
+            <option value="">Select a template...</option>
+            <option v-for="template in invitationTemplates" :key="template.id" :value="template.id">
+              {{ template.name }}
+            </option>
+          </select>
+
+          <div v-if="campaignData.selectedTemplateId" class="mt-3 p-3 bg-theme-overlay rounded-lg">
+            <div class="text-xs text-theme-muted mb-1">Preview:</div>
+            <div class="text-sm text-theme-secondary">
+              {{ invitationTemplates.find(t => t.id === campaignData.selectedTemplateId)?.content }}
+            </div>
+          </div>
+        </template>
+      </div>
     </div>
   </div>
 

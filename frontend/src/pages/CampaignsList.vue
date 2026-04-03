@@ -167,7 +167,7 @@ const progressPercent = (campaign) => {
                 <th class="px-6 py-3 text-left text-xs font-medium text-theme-muted uppercase tracking-wider">Status</th>
                 <th class="px-6 py-3 text-left text-xs font-medium text-theme-muted uppercase tracking-wider">Prospects</th>
                 <th class="px-6 py-3 text-left text-xs font-medium text-theme-muted uppercase tracking-wider">Progress</th>
-                <th class="px-6 py-3 text-left text-xs font-medium text-theme-muted uppercase tracking-wider">Daily Limit</th>
+                <th class="px-6 py-3 text-left text-xs font-medium text-theme-muted uppercase tracking-wider">Prospect Limit</th>
                 <th class="px-6 py-3 text-right text-xs font-medium text-theme-muted uppercase tracking-wider">Actions</th>
               </tr>
             </thead>

@@ -30,16 +30,16 @@
     </div>
 
     <div>
-      <label class="block text-sm font-medium text-theme-secondary mb-2">Daily Limit</label>
+      <label class="block text-sm font-medium text-theme-secondary mb-2">Prospect Limit</label>
       <input
         type="number"
         :value="campaignData.daily_limit"
         @input="$emit('update', { daily_limit: parseInt($event.target.value) || 50 })"
         min="1"
-        max="100"
+        max="1000"
         class="w-full px-4 py-2 border border-theme rounded-lg focus:ring-2 focus:ring-linkedin focus:border-transparent"
       />
-      <p class="text-xs text-theme-muted mt-1">Maximum number of actions per day (1-100)</p>
+      <p class="text-xs text-theme-muted mt-1">Maximum number of prospects to process in this campaign</p>
     </div>
   </div>
 </template>

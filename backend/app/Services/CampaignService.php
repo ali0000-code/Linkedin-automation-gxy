@@ -191,10 +191,8 @@ class CampaignService
             return false;
         }
 
-        // Only allow deleting draft or completed campaigns
-        if (!$campaign->isDraft() && !$campaign->isCompleted()) {
-            return false;
-        }
+        // Clean up pending actions before deleting
+        $campaign->actionQueue()->where('status', 'pending')->delete();
 
         Cache::forget("campaign_stats_{$user->id}");
         return $campaign->delete();
