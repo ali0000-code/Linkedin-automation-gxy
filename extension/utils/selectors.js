@@ -244,8 +244,8 @@ const LINKEDIN_SELECTORS = {
 
     // Send button
     SEND_BUTTON: [
-      '.msg-form__send-button',
-      'button.msg-form__send-button'
+      '.msg-form__send-button, .msg-form__send-btn',
+      'button[class*="msg-form__send"]'
     ]
   },
 

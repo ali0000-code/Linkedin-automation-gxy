@@ -657,13 +657,15 @@ async function executeMessage(action) {
 
     await sleep(1000);
 
-    // Find Message button in main profile area with retries
+    // Find Message button/link in main profile area with retries
+    // LinkedIn 2025: Message is an <a> tag, not a <button>
     let messageButton = null;
     let msgRetry = 0;
     const maxMsgRetries = 5;
 
     while (!messageButton && msgRetry < maxMsgRetries) {
-      messageButton = actionContainer.querySelector(selectors.PROFILE.MESSAGE_BUTTON);
+      messageButton = findActionByText('Message', actionContainer) ||
+                      actionContainer.querySelector(selectors.PROFILE.MESSAGE_BUTTON);
       if (!messageButton) {
         msgRetry++;
         console.log(`[ActionExecutor] Message button not found, retry ${msgRetry}/${maxMsgRetries}...`);
@@ -701,7 +703,19 @@ async function executeMessage(action) {
     await sleep(3000);
 
     // Find message textbox (contenteditable div)
-    let messageTextbox = document.querySelector(selectors.MESSAGE.TEXTBOX);
+    let messageTextbox = document.querySelector(selectors.MESSAGE.TEXTBOX) ||
+                         document.querySelector('.msg-form__contenteditable[contenteditable="true"]') ||
+                         document.querySelector('[contenteditable="true"][role="textbox"]');
+    if (!messageTextbox) {
+      // Retry a few times — the compose area may take a moment to appear
+      for (let i = 0; i < 5; i++) {
+        await sleep(1000);
+        messageTextbox = document.querySelector(selectors.MESSAGE.TEXTBOX) ||
+                         document.querySelector('.msg-form__contenteditable[contenteditable="true"]') ||
+                         document.querySelector('[contenteditable="true"][role="textbox"]');
+        if (messageTextbox) break;
+      }
+    }
     if (!messageTextbox) {
       console.error('[ActionExecutor] Message textbox not found');
       return { success: false, message: 'Message compose area did not appear' };
@@ -761,9 +775,8 @@ async function executeMessage(action) {
     // Send the message - find and click the Send button
     console.log('[ActionExecutor] Looking for Send button...');
 
-    // Find send button with multiple selectors
-    let sendButton = document.querySelector('button.msg-form__send-button:not([disabled])') ||
-                     document.querySelector('button[type="submit"].msg-form__send-button:not([disabled])') ||
+    // Find send button — try text-based, then class-based, then form submit
+    let sendButton = document.querySelector('button[class*="msg-form__send"]:not([disabled])') ||
                      document.querySelector('form.msg-form button[type="submit"]:not([disabled])') ||
                      document.querySelector(selectors.MESSAGE.SEND_BUTTON);
 
@@ -773,8 +786,14 @@ async function executeMessage(action) {
       sendRetries++;
       console.log(`[ActionExecutor] Send button not ready, retry ${sendRetries}/5...`);
       await sleep(500);
-      sendButton = document.querySelector('button.msg-form__send-button:not([disabled])') ||
-                   document.querySelector('button[type="submit"].msg-form__send-button:not([disabled])');
+      sendButton = document.querySelector('button[class*="msg-form__send"]:not([disabled])') ||
+                   document.querySelector('form.msg-form button[type="submit"]:not([disabled])');
+    }
+
+    // Fallback: find by aria-label or text
+    if (!sendButton || sendButton.disabled) {
+      sendButton = document.querySelector('button[aria-label="Send"]') ||
+                   document.querySelector('button[type="submit"][aria-label*="Send"]');
     }
 
     if (sendButton && !sendButton.disabled) {
@@ -1107,7 +1126,7 @@ async function executeSmartConnect(action) {
       await sleep(1000);
 
       // Find and click send button
-      let sendButton = document.querySelector('button.msg-form__send-button:not([disabled])') ||
+      let sendButton = document.querySelector('button[class*="msg-form__send"]:not([disabled])') ||
                        document.querySelector(selectors.MESSAGE.SEND_BUTTON);
 
       // Wait for send button to be enabled
@@ -1115,7 +1134,7 @@ async function executeSmartConnect(action) {
       while ((!sendButton || sendButton.disabled) && sendRetries < 5) {
         sendRetries++;
         await sleep(500);
-        sendButton = document.querySelector('button.msg-form__send-button:not([disabled])');
+        sendButton = document.querySelector('button[class*="msg-form__send"]:not([disabled])');
       }
 
       if (sendButton && !sendButton.disabled) {
@@ -1577,7 +1596,7 @@ async function sendFallbackMessage(action) {
   await sleep(1000);
 
   // Find and click send button
-  let sendButton = document.querySelector('button.msg-form__send-button:not([disabled])') ||
+  let sendButton = document.querySelector('button[class*="msg-form__send"]:not([disabled])') ||
                    document.querySelector(selectors.MESSAGE.SEND_BUTTON);
 
   // Wait for send button to be enabled
@@ -1585,7 +1604,7 @@ async function sendFallbackMessage(action) {
   while ((!sendButton || sendButton.disabled) && sendRetries < 5) {
     sendRetries++;
     await sleep(500);
-    sendButton = document.querySelector('button.msg-form__send-button:not([disabled])');
+    sendButton = document.querySelector('button[class*="msg-form__send"]:not([disabled])');
   }
 
   if (sendButton && !sendButton.disabled) {
