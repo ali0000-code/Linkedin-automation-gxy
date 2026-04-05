@@ -812,24 +812,28 @@ async function startQueueOnLinkedIn() {
   console.log('[Background] Queue status set to running (blocking polling)');
 
   try {
-    // Find existing LinkedIn tab
-    const tabs = await chrome.tabs.query({ url: 'https://www.linkedin.com/*' });
+    // Find a LinkedIn tab suitable for running campaigns.
+    // Skip the pinned messaging tab (used for realtime interception) — campaigns
+    // need to navigate to profile pages, which would break messaging capture.
+    const allTabs = await chrome.tabs.query({ url: 'https://www.linkedin.com/*' });
+    const campaignTabs = allTabs.filter(t => !t.pinned && !t.url.includes('/messaging/'));
 
     let linkedInTab;
     let needToWait = false;
 
-    if (tabs.length > 0) {
-      // Use existing tab
-      linkedInTab = tabs[0];
-      console.log('[Background] Found existing LinkedIn tab:', linkedInTab.id);
-
-      // Focus the tab
+    if (campaignTabs.length > 0) {
+      linkedInTab = campaignTabs[0];
+      console.log('[Background] Using existing non-messaging LinkedIn tab for campaign:', linkedInTab.id);
       await chrome.tabs.update(linkedInTab.id, { active: true });
       await chrome.windows.update(linkedInTab.windowId, { focused: true });
     } else {
-      // Create new LinkedIn tab
-      console.log('[Background] Creating new LinkedIn tab');
-      linkedInTab = await chrome.tabs.create({ url: 'https://www.linkedin.com/feed/' });
+      // Create a fresh, non-pinned tab for the campaign on the feed page
+      console.log('[Background] Creating new LinkedIn tab for campaign');
+      linkedInTab = await chrome.tabs.create({
+        url: 'https://www.linkedin.com/feed/',
+        pinned: false,
+        active: true,
+      });
       needToWait = true;
     }
 
@@ -1932,23 +1936,37 @@ async function performUnifiedPollingCycle() {
   pollingCycleCount++;
   console.log(`[Background] === Polling cycle #${pollingCycleCount} ===`);
 
-  // Step 1: Check for LinkedIn tab (shared across all tasks)
-  const linkedInTab = await findLinkedInTab();
-  if (!linkedInTab) {
-    consecutiveNoTabFailures++;
-    console.log(`[Background] No LinkedIn tab found (failure #${consecutiveNoTabFailures})`);
-
-    // After too many failures, slow down polling
-    if (consecutiveNoTabFailures >= MAX_NO_TAB_FAILURES) {
-      console.log('[Background] Too many consecutive failures, pausing polling for 2 minutes');
-      PollingManager.stop('unified');
-      setTimeout(() => {
-        consecutiveNoTabFailures = 0; // Reset counter
-        startAllPolling();
-      }, 2 * 60 * 1000); // Resume after 2 minutes
+  // Step 0: Check for pending/scheduled messages BEFORE requiring a tab.
+  // This is a backend API call that doesn't need LinkedIn. If messages are due,
+  // we'll create a tab on demand via sendMessageOnLinkedIn.
+  try {
+    const token = await getAuthToken();
+    if (token) {
+      const data = await backgroundApiCall('/inbox/pending-messages', 'GET');
+      const pending = data.messages || [];
+      if (pending.length > 0) {
+        console.log(`[Background] ${pending.length} pending messages due — processing (will create tab if needed)`);
+        await performPendingMessageCheckInternal();
+      }
     }
-    return;
+  } catch (e) {
+    console.error('[Background] Pending message pre-check failed:', e.message);
   }
+
+  // Step 1: Ensure a LinkedIn tab exists (create pinned tab if missing)
+  let linkedInTab = await findLinkedInTab();
+  if (!linkedInTab) {
+    console.log('[Background] No LinkedIn tab found, creating pinned tab...');
+    try {
+      linkedInTab = await ensureLinkedInTab(true);
+      // Give the tab a moment to load before proceeding
+      await new Promise(resolve => setTimeout(resolve, 3000));
+    } catch (e) {
+      console.error('[Background] Failed to create LinkedIn tab:', e.message);
+      return;
+    }
+  }
+  consecutiveNoTabFailures = 0;
 
   // Reset failure counter on success
   consecutiveNoTabFailures = 0;
@@ -2178,6 +2196,12 @@ async function performAutoSyncInternal(linkedInTab) {
 function startAllPolling() {
   console.log('[Background] Starting unified polling...');
 
+  // Ensure a pinned LinkedIn tab exists so the interceptor and content script can run.
+  // This is required for realtime message capture, sync, and campaign actions.
+  ensureLinkedInTab(true).catch(e => {
+    console.error('[Background] Failed to ensure LinkedIn tab on startup:', e.message);
+  });
+
   // Single unified polling cycle - every 30 seconds
   PollingManager.start('unified', performUnifiedPollingCycle, 30000);
 
@@ -2205,9 +2229,109 @@ chrome.storage.local.get(['auth_token'], async (result) => {
 });
 
 // Start polling when auth succeeds
+// Auto-recreate LinkedIn tab if user closes it while extension is active
+chrome.tabs.onRemoved.addListener(async (tabId, removeInfo) => {
+  // Skip if browser is closing
+  if (removeInfo.isWindowClosing) return;
+
+  // Check if the removed tab was a LinkedIn tab
+  // (we can't read the closed tab's URL, so we check if any LinkedIn tab still exists)
+  const stored = await chrome.storage.local.get('polling_active');
+  if (!stored.polling_active) return; // Only recreate if polling is active
+
+  const remaining = await findLinkedInTab();
+  if (!remaining) {
+    console.log('[Background] LinkedIn tab closed while extension active — recreating');
+    setTimeout(() => {
+      ensureLinkedInTab(true).catch(e => console.error('[Background] Recreate failed:', e.message));
+    }, 2000);
+  }
+});
+
 chrome.runtime.onMessage.addListener((message) => {
   if (message.type === 'AUTH_STATE_CHANGED' && message.authenticated) {
     console.log('[Background] Auth state changed, starting polling');
     startAllPolling();
   }
+
+  // Realtime: LinkedIn pushed a new message via SSE — trigger immediate check
+  if (message.type === 'REALTIME_NEW_MESSAGE') {
+    console.log('[Background] 📡 Realtime new message detected, triggering immediate check');
+    // Debounce: only run if last check was > 2 seconds ago to avoid storms
+    const now = Date.now();
+    if (!lastRealtimeCheck || now - lastRealtimeCheck > 2000) {
+      lastRealtimeCheck = now;
+      (async () => {
+        try {
+          const tab = await findLinkedInTab();
+          if (tab) await checkForNewMessagesInternal(tab);
+        } catch (e) {
+          console.error('[Background] Realtime-triggered check failed:', e.message);
+        }
+      })();
+    }
+  }
+
+  // Auto-sync: interceptor detected conversations with new messages (e.g., after LinkedIn tab was closed and reopened)
+  if (message.type === 'AUTO_SYNC_CONVERSATIONS' && message.conversations) {
+    console.log(`[Background] 🔄 Auto-syncing ${message.conversations.length} conversations with new messages`);
+    (async () => {
+      try {
+        // Push updated conversation list to backend so new previews/timestamps appear
+        await backgroundApiCall('/inbox/sync', 'POST', { conversations: message.conversations });
+        console.log('[Background] ✅ Auto-sync complete');
+        // Trigger new-messages check to fetch actual message bodies
+        const tab = await findLinkedInTab();
+        if (tab) await checkForNewMessagesInternal(tab);
+      } catch (e) {
+        console.error('[Background] Auto-sync failed:', e.message);
+      }
+    })();
+  }
+
+  // Realtime: content script parsed a new message from SSE, forward directly to backend
+  if (message.type === 'REALTIME_INCOMING_MESSAGE' && message.payload) {
+    const msg = message.payload;
+    console.log(`[Background] 📡 Saving realtime message directly: "${msg.message?.content?.substring(0, 40)}"`);
+    (async () => {
+      try {
+        // Skip if already processed
+        const msgId = msg.message?.linkedin_message_id;
+        if (msgId && processedIncomingIds.has(msgId)) {
+          console.log('[Background] Realtime message already processed');
+          return;
+        }
+
+        try {
+          await backgroundApiCall('/inbox/incoming-message', 'POST', {
+            linkedin_conversation_id: msg.conversationId,
+            participant_name: msg.participantName,
+            message: msg.message
+          });
+        } catch (error) {
+          if (error.status === 404) {
+            // Create conversation first
+            await backgroundApiCall('/inbox/conversations', 'POST', {
+              linkedin_conversation_id: msg.conversationId,
+              participant_name: msg.participantName || 'Unknown'
+            });
+            await backgroundApiCall('/inbox/incoming-message', 'POST', {
+              linkedin_conversation_id: msg.conversationId,
+              participant_name: msg.participantName,
+              message: msg.message
+            });
+          } else {
+            throw error;
+          }
+        }
+
+        if (msgId) processedIncomingIds.add(msgId);
+        console.log('[Background] ✅ Realtime message saved');
+      } catch (e) {
+        console.error('[Background] Failed to save realtime message:', e.message);
+      }
+    })();
+  }
 });
+
+let lastRealtimeCheck = 0;

@@ -43,6 +43,12 @@
   "content_scripts": [
     {
       "matches": ["https://www.linkedin.com/*"],
+      "js": ["services/networkInterceptor.js"],
+      "run_at": "document_start",
+      "world": "MAIN"
+    },
+    {
+      "matches": ["https://www.linkedin.com/*"],
       "js": [
         "services/storage.js",
         "services/api.js",
@@ -59,6 +65,13 @@
       "matches": ["http://localhost:3000/*"],
       "js": ["webapp-connector.js"],
       "run_at": "document_start"
+    }
+  ],
+
+  "web_accessible_resources": [
+    {
+      "resources": ["services/networkInterceptor.js"],
+      "matches": ["https://www.linkedin.com/*"]
     }
   ],
 

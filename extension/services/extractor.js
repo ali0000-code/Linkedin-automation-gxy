@@ -360,16 +360,28 @@ async function extractProfiles(limit = 100, totalCollected = 0, totalLimit = 100
     try {
       const profileUrl = link.href;
 
-      // Extract just the person's name — not nested headline/company text.
-      // LinkedIn wraps the visible name in span[aria-hidden="true"] inside the link.
-      // Fall back to the first non-empty line of textContent.
-      const nameSpan = link.querySelector('span[aria-hidden="true"]') ||
-                       link.querySelector('span:not(.visually-hidden)');
-      let name = (nameSpan ? nameSpan.textContent : link.textContent)
-        .trim()
-        .split('\n')[0]   // take only first line in case of multiline text
-        .trim()
-        .substring(0, 100); // names are never 100 chars; caps runaway text
+      // Extract just the person's name from the link text.
+      // LinkedIn 2025 search result format: "FirstName LastName  • 2ndHeadlineLocation"
+      // The " • " separator delimits the name from the connection degree and headline.
+      // Fallback for older UI: try span[aria-hidden="true"] which used to wrap the name.
+      let name = '';
+      const nameSpan = link.querySelector('span[aria-hidden="true"]');
+      if (nameSpan?.textContent?.trim()) {
+        name = nameSpan.textContent.trim();
+      } else {
+        // Parse name from combined text content
+        const rawText = (link.textContent || '').trim();
+        // Split by " • " (connection degree separator) — name is before it
+        const bulletIdx = rawText.indexOf('•');
+        if (bulletIdx > 0) {
+          name = rawText.substring(0, bulletIdx).trim();
+        } else {
+          // Fallback: first line only
+          name = rawText.split('\n')[0].trim();
+        }
+      }
+      // Safety cap — names should never exceed 100 chars
+      name = name.substring(0, 100);
 
       // Skip if no name or URL
       if (!name || !profileUrl) {
@@ -1118,33 +1130,40 @@ async function extractEmailFromProfile() {
       return { success: false, email: null, error: 'Not on a profile page' };
     }
 
-    // Step 1: Check if a mailto link is already visible (dialog may already be open)
-    let emailLink = document.querySelector('a[href^="mailto:"]');
-    if (emailLink) {
-      const email = emailLink.getAttribute('href').replace('mailto:', '').trim();
-      console.log('[Extractor] Email found immediately (dialog already open):', email);
-      return { success: true, email };
+    // Step 1: Always close any existing contact info dialog first.
+    // A leftover dialog from a previous prospect would contain a stale mailto link
+    // and we'd return the WRONG email. Force-close everything before opening fresh.
+    await closeContactInfoOverlay();
+    // Also press Escape as a safety net
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', keyCode: 27, bubbles: true }));
+    await new Promise(r => setTimeout(r, 500));
+
+    // Step 2: Wait for any residual mailto link to disappear from the DOM
+    for (let i = 0; i < 10; i++) {
+      if (!document.querySelector('a[href^="mailto:"]')) break;
+      await new Promise(r => setTimeout(r, 200));
     }
 
-    // Step 2: Try to open the Contact Info overlay
+    // Step 3: Open the Contact Info overlay for the CURRENT prospect
     const opened = await openContactInfoOverlay();
     if (!opened) {
       return { success: false, email: null, error: 'Could not open Contact Info. Try refreshing the page.' };
     }
 
-    // Step 3: Wait for mailto link to appear (up to 8 seconds)
+    // Step 4: Wait for the fresh mailto link to appear (up to 8 seconds)
+    let emailLink = null;
     for (let i = 0; i < 16; i++) {
       emailLink = document.querySelector('a[href^="mailto:"]');
       if (emailLink) break;
       await new Promise(r => setTimeout(r, 500));
     }
 
-    // Step 4: Close the overlay
+    // Step 5: Close the overlay
     await closeContactInfoOverlay();
 
     if (emailLink) {
       const email = emailLink.getAttribute('href').replace('mailto:', '').trim();
-      console.log('[Extractor] Email found:', email);
+      console.log('[Extractor] Email found for current prospect:', email);
       return { success: true, email };
     } else {
       return { success: true, email: null, error: 'No email found in Contact Info' };

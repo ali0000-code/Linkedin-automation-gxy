@@ -67,7 +67,15 @@ const sendScheduledMutation = useSendScheduledMessage()
 
 const conversations = computed(() => conversationsData.value?.data || [])
 const selectedConversation = computed(() => conversationData.value?.conversation)
-const messages = computed(() => selectedConversation.value?.messages || [])
+const messages = computed(() => {
+  const msgs = selectedConversation.value?.messages || []
+  // Sort oldest-first so newest messages appear at the bottom (standard chat UX)
+  return [...msgs].sort((a, b) => {
+    const ta = new Date(a.sent_at || a.created_at || 0).getTime()
+    const tb = new Date(b.sent_at || b.created_at || 0).getTime()
+    return ta - tb
+  })
+})
 const stats = computed(() => statsData.value || {})
 const isSending = computed(() => sendMessageMutation.isPending?.value || sendScheduledMutation.isPending?.value)
 
@@ -91,8 +99,21 @@ onMounted(async () => {
   }
 })
 
-// Lightweight polling: every 15s check message count via cheap endpoint
+// Poll every 5s for new messages (reduced from 15s for faster realtime feel)
+// Also invalidate conversations list so sidebar updates with latest messages
 let pollInterval = null
+let listPollInterval = null
+
+// Poll the conversation list every 5s so new messages in other conversations show up in sidebar
+onMounted(() => {
+  listPollInterval = setInterval(() => {
+    queryClient.invalidateQueries({ queryKey: ['conversations'] })
+    queryClient.invalidateQueries({ queryKey: ['inboxStats'] })
+  }, 5000)
+})
+onUnmounted(() => {
+  if (listPollInterval) clearInterval(listPollInterval)
+})
 
 watch(selectedConversationId, (newId) => {
   if (pollInterval) {
@@ -108,10 +129,8 @@ watch(selectedConversationId, (newId) => {
       const lastCount = lastKnownCountRef.value[newId]
 
       if (lastCount === undefined) {
-        // First check -- store baseline
         lastKnownCountRef.value[newId] = check.message_count
       } else if (check.message_count !== lastCount) {
-        // Message count changed -- fetch full conversation
         lastKnownCountRef.value[newId] = check.message_count
         queryClient.invalidateQueries({ queryKey: ['conversation', newId] })
         queryClient.invalidateQueries({ queryKey: ['conversations'] })
@@ -119,7 +138,7 @@ watch(selectedConversationId, (newId) => {
     } catch {
       // Silently ignore poll errors
     }
-  }, 15000)
+  }, 5000)
 }, { immediate: true })
 
 // Cleanup interval on unmount
@@ -434,9 +453,6 @@ const formatScheduledTime = (dateString) => {
                   </div>
                   <p v-if="conversation.participant_headline" class="text-xs text-theme-muted truncate mt-0.5">
                     {{ conversation.participant_headline }}
-                  </p>
-                  <p :class="['text-sm truncate mt-1', conversation.is_unread ? 'font-semibold text-theme-primary' : 'text-theme-muted']">
-                    {{ conversation.last_message_preview || 'No messages yet' }}
                   </p>
                 </div>
                 <div v-if="conversation.unread_count > 0" class="flex-shrink-0 bg-linkedin text-white text-xs font-bold rounded-full w-5 h-5 flex items-center justify-center">

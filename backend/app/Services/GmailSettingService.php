@@ -40,11 +40,15 @@ class GmailSettingService
      */
     public function saveSettings(User $user, string $email, string $appPassword): GmailSetting
     {
+        // Gmail shows app passwords with spaces (xxxx xxxx xxxx xxxx) but SMTP
+        // requires the 16-char password without spaces. Strip them automatically.
+        $cleanPassword = preg_replace('/\s+/', '', $appPassword);
+
         return GmailSetting::updateOrCreate(
             ['user_id' => $user->id],
             [
-                'email' => $email,
-                'app_password' => $appPassword, // Will be encrypted by model
+                'email' => trim($email),
+                'app_password' => $cleanPassword, // Will be encrypted by model
                 'is_verified' => false,
             ]
         );

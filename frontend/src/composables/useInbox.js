@@ -24,7 +24,7 @@ export const useConversations = (params = {}) => {
   return useQuery({
     queryKey: ['conversations', params],
     queryFn: () => inboxService.getConversations(unref(params)),
-    staleTime: 30000,
+    staleTime: 0, // Refetch on invalidation so new messages show in sidebar immediately
   });
 };
 
@@ -36,7 +36,7 @@ export const useConversation = (id) => {
     queryKey: ['conversation', id],
     queryFn: () => inboxService.getConversation(unref(id)),
     enabled: !!id,
-    staleTime: 10000,
+    staleTime: 0, // Invalidate → refetch immediately (no stale buffer)
   });
 };
 

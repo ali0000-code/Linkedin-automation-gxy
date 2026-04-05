@@ -2,10 +2,26 @@
  * Action Executor Service
  *
  * Executes LinkedIn actions (visit, invite, message, follow) on profile pages.
- * Based on reference extension implementation - exact working logic.
  *
  * @module services/actionExecutor
  */
+
+// Bridge logger — sends logs to page-context console via postMessage so they're visible
+// in the LinkedIn tab's main console (not just the isolated world)
+const __origLog = console.log;
+console.log = function (...args) {
+  __origLog.apply(console, args);
+  try {
+    // Only bridge logs from ActionExecutor or QueueProcessor
+    const first = args[0];
+    if (typeof first === 'string' && (first.includes('[ActionExecutor]') || first.includes('[QueueProcessor]'))) {
+      window.postMessage({
+        type: '__LI_BRIDGE_LOG__',
+        args: args.map(a => typeof a === 'object' ? JSON.stringify(a).substring(0, 300) : String(a))
+      }, '*');
+    }
+  } catch (e) {}
+};
 
 /**
  * Sleep for a specified number of milliseconds
@@ -38,17 +54,145 @@ function extractLinkedInIdFromUrl(profileUrl) {
 }
 
 /**
+ * Find an element across all shadow DOMs matching a CSS selector.
+ * LinkedIn 2025 renders the connection modal inside a closed Shadow DOM,
+ * so regular querySelectorAll can't find its buttons.
+ * @param {string} selector - CSS selector
+ * @param {Node} [root=document] - Starting root
+ * @returns {Element|null}
+ */
+function deepQuerySelector(selector, root = document) {
+  // First try the direct query
+  const direct = root.querySelector?.(selector);
+  if (direct) return direct;
+
+  // Walk all elements (including shadow roots) and check
+  const walk = (node) => {
+    if (!node) return null;
+    if (node.nodeType === 1) {
+      // Check shadow root if present
+      if (node.shadowRoot) {
+        const found = node.shadowRoot.querySelector(selector);
+        if (found) return found;
+        const deep = walk(node.shadowRoot);
+        if (deep) return deep;
+      }
+    }
+    for (let child = node.firstChild; child; child = child.nextSibling) {
+      const found = walk(child);
+      if (found) return found;
+    }
+    return null;
+  };
+  return walk(root);
+}
+
+/**
+ * Find all elements across shadow DOMs matching a selector.
+ */
+function deepQuerySelectorAll(selector, root = document) {
+  const results = [];
+  // Include direct matches
+  if (root.querySelectorAll) {
+    results.push(...root.querySelectorAll(selector));
+  }
+  // Walk shadow roots
+  const walk = (node) => {
+    if (!node) return;
+    if (node.nodeType === 1 && node.shadowRoot) {
+      results.push(...node.shadowRoot.querySelectorAll(selector));
+      const inner = node.shadowRoot.firstChild;
+      if (inner) walkSiblings(inner);
+    }
+    for (let child = node.firstChild; child; child = child.nextSibling) {
+      walk(child);
+    }
+  };
+  const walkSiblings = (node) => {
+    while (node) {
+      walk(node);
+      node = node.nextSibling;
+    }
+  };
+  walk(root);
+  return results;
+}
+
+/**
+ * Check if an element is actually visible on the page (not display:none, hidden, etc.)
+ */
+function isElementVisible(el) {
+  if (!el) return false;
+  // offsetParent is null when element is display:none (except for position:fixed)
+  if (el.offsetParent === null && el.tagName !== 'BODY') {
+    // Additional check for position:fixed elements
+    const style = window.getComputedStyle(el);
+    if (style.display === 'none' || style.visibility === 'hidden') return false;
+  }
+  const rect = el.getBoundingClientRect();
+  return rect.width > 0 && rect.height > 0;
+}
+
+/**
+ * Check if an element is inside a closed dropdown menu (its menu trigger has aria-expanded="false").
+ * Such elements are DOM-present but not actually visible/clickable.
+ */
+function isInsideClosedDropdown(el) {
+  // Check if any ancestor is a menu/dropdown that's not currently open
+  let parent = el.parentElement;
+  while (parent) {
+    // Role-based: menu items inside a closed menu
+    if (parent.getAttribute('role') === 'menu') {
+      // Find the menu's trigger (button with aria-expanded)
+      const menuId = parent.id;
+      if (menuId) {
+        const trigger = document.querySelector(`[aria-controls="${menuId}"]`);
+        if (trigger && trigger.getAttribute('aria-expanded') === 'false') return true;
+      }
+      // Also check artdeco dropdown content visibility
+      if (parent.closest('.artdeco-dropdown__content-inner, .artdeco-dropdown__content')) {
+        const dropdown = parent.closest('.artdeco-dropdown');
+        const trigger = dropdown?.querySelector('[aria-expanded]');
+        if (trigger && trigger.getAttribute('aria-expanded') === 'false') return true;
+      }
+    }
+    // Artdeco dropdown content
+    if (parent.classList?.contains('artdeco-dropdown__content') ||
+        parent.classList?.contains('artdeco-dropdown__content-inner')) {
+      const dropdown = parent.closest('.artdeco-dropdown');
+      const trigger = dropdown?.querySelector('button[aria-expanded]');
+      if (trigger && trigger.getAttribute('aria-expanded') === 'false') return true;
+    }
+    parent = parent.parentElement;
+  }
+  return false;
+}
+
+/**
  * Find a clickable element (button or link) by its visible text content.
- * LinkedIn 2025 removed aria-label and uses <span>Text</span> inside buttons/links.
+ * Prefers visible <button> elements over <a> anchors (which often navigate instead
+ * of opening inline modals). Excludes items inside closed dropdowns.
  * @param {string} text - Exact visible text to match
  * @param {Element} [scope=document] - Element to search within
  * @returns {Element|null}
  */
 function findActionByText(text, scope = document) {
-  // Check buttons and links
-  for (const el of scope.querySelectorAll('button, a[role="button"], a[href]')) {
-    const elText = el.textContent.trim();
-    if (elText === text) return el;
+  const isUsable = (el) => {
+    if (el.textContent.trim() !== text) return false;
+    if (!isElementVisible(el)) return false;
+    if (isInsideClosedDropdown(el)) return false;
+    // Skip menuitems — they're dropdown options, not primary actions
+    if (el.getAttribute('role') === 'menuitem') return false;
+    return true;
+  };
+
+  // Pass 1: visible <button> elements (preferred — they don't navigate)
+  for (const el of scope.querySelectorAll('button')) {
+    if (isUsable(el)) return el;
+  }
+  // Pass 2: visible anchors (not menu items, not in closed dropdowns)
+  for (const el of scope.querySelectorAll('a[role="button"], a[href]')) {
+    if (isUsable(el)) return el;
   }
   return null;
 }
@@ -363,20 +507,40 @@ async function executeInvite(action) {
 
     await sleep(300);
 
-    // Click Connect button
-    console.log('[ActionExecutor] Clicking Connect button...');
+    // Click Connect button using full mouse event sequence for Ember compatibility
+    console.log('[ActionExecutor] Clicking Connect button — element:', connectButton.tagName, connectButton.getAttribute('aria-label') || connectButton.textContent?.trim().substring(0, 40));
+    connectButton.scrollIntoView({ behavior: 'instant', block: 'center' });
+    await sleep(200);
+    const cRect = connectButton.getBoundingClientRect();
+    const cOpts = { bubbles: true, cancelable: true, view: window, clientX: cRect.left + cRect.width/2, clientY: cRect.top + cRect.height/2, button: 0 };
+    connectButton.focus();
+    connectButton.dispatchEvent(new MouseEvent('mousedown', { ...cOpts, buttons: 1 }));
+    connectButton.dispatchEvent(new MouseEvent('mouseup', { ...cOpts, buttons: 0 }));
+    connectButton.dispatchEvent(new MouseEvent('click', { ...cOpts, buttons: 0 }));
     connectButton.click();
 
     // Wait for modal to appear
     console.log('[ActionExecutor] Waiting for connection modal...');
     await sleep(3000);
 
-    // Check for Add note and Send without note buttons (text-based + legacy aria-label)
-    const addNoteButton = findActionByText('Add a note') ||
-                          document.querySelector(selectors.CONNECTION_MODAL.ADD_NOTE_BUTTON);
-    const sendWithoutNoteButton = findActionByText('Send without a note') ||
-                                  findActionByText('Send') ||
-                                  document.querySelector(selectors.CONNECTION_MODAL.SEND_WITHOUT_NOTE);
+    // LinkedIn 2025 renders the connection modal inside a SHADOW DOM.
+    // We need to traverse shadow roots to find its buttons.
+    let addNoteButton = null;
+    let sendWithoutNoteButton = null;
+    for (let i = 0; i < 30; i++) {
+      addNoteButton = deepQuerySelector('button[aria-label="Add a note"]');
+      sendWithoutNoteButton = deepQuerySelector('button[aria-label="Send without a note"]');
+      if (addNoteButton || sendWithoutNoteButton) {
+        console.log(`[ActionExecutor] Modal buttons found in shadow DOM (attempt ${i + 1})`);
+        break;
+      }
+      await sleep(500);
+    }
+    if (!addNoteButton && !sendWithoutNoteButton) {
+      console.log('[ActionExecutor] Modal buttons NOT found after 15s — current URL:', window.location.href);
+    }
+    // modalDoc is the root containing the modal — use document since deepQuerySelector handles shadow
+    const modalDoc = { querySelector: (s) => deepQuerySelector(s) };
 
     // Check for premium upsell / limit reached — LinkedIn shows this when
     // non-premium users exceed 3 personalized invites per month
@@ -421,16 +585,40 @@ async function executeInvite(action) {
 
       await sleep(500);
       console.log('[ActionExecutor] Clicking Add a note button...');
+
+      // Scroll the button into view so it receives the click
+      addNoteButton.scrollIntoView({ behavior: 'instant', block: 'center' });
+      await sleep(300);
+
+      // Fire a full mouse event sequence that Ember/React expects:
+      // pointerdown → mousedown → pointerup → mouseup → click
+      const rect = addNoteButton.getBoundingClientRect();
+      const x = rect.left + rect.width / 2;
+      const y = rect.top + rect.height / 2;
+      const mouseOpts = {
+        bubbles: true, cancelable: true, view: window,
+        clientX: x, clientY: y, button: 0, buttons: 1,
+      };
+      addNoteButton.focus();
+      addNoteButton.dispatchEvent(new PointerEvent('pointerdown', { ...mouseOpts, pointerId: 1, pointerType: 'mouse' }));
+      addNoteButton.dispatchEvent(new MouseEvent('mousedown', mouseOpts));
+      addNoteButton.dispatchEvent(new PointerEvent('pointerup', { ...mouseOpts, pointerId: 1, pointerType: 'mouse', buttons: 0 }));
+      addNoteButton.dispatchEvent(new MouseEvent('mouseup', { ...mouseOpts, buttons: 0 }));
+      addNoteButton.dispatchEvent(new MouseEvent('click', { ...mouseOpts, buttons: 0 }));
       addNoteButton.click();
 
-      // Wait for textarea to appear
+      // Wait for textarea to appear (in the iframe's document) — poll up to 5 seconds
       console.log('[ActionExecutor] Waiting for note textarea...');
-      await sleep(2000);
-
-      // Find the note textarea
-      const noteTextarea = document.querySelector(selectors.CONNECTION_MODAL.NOTE_TEXTAREA);
+      let noteTextarea = null;
+      for (let i = 0; i < 10; i++) {
+        await sleep(500);
+        noteTextarea = modalDoc.querySelector('textarea[name="message"]') ||
+                       modalDoc.querySelector('#custom-message') ||
+                       modalDoc.querySelector(selectors.CONNECTION_MODAL.NOTE_TEXTAREA);
+        if (noteTextarea) break;
+      }
       if (!noteTextarea) {
-        console.error('[ActionExecutor] Note textarea not found');
+        console.error('[ActionExecutor] Note textarea not found after clicking Add a note');
         return { success: false, message: 'Note textarea not found' };
       }
 
@@ -462,19 +650,26 @@ async function executeInvite(action) {
 
       console.log('[ActionExecutor] Message entered successfully');
 
-      // Click Send invitation button
+      // Click Send invitation button (inside iframe modal)
       console.log('[ActionExecutor] Looking for Send button...');
       await sleep(500);
 
-      const sendButton = findActionByText('Send invitation') ||
-                         findActionByText('Send') ||
-                         document.querySelector(selectors.CONNECTION_MODAL.SEND_BUTTON);
+      const sendButton = modalDoc.querySelector('button[aria-label="Send invitation"]') ||
+                         modalDoc.querySelector('button[aria-label="Send"]') ||
+                         findActionByText('Send invitation', modalDoc) ||
+                         findActionByText('Send', modalDoc);
       if (!sendButton) {
         console.error('[ActionExecutor] Send button not found');
         return { success: false, message: 'Send button not found' };
       }
 
       console.log('[ActionExecutor] Clicking Send button...');
+      // Use dispatchEvent for Ember compatibility
+      const sRect = sendButton.getBoundingClientRect();
+      const sOpts = { bubbles: true, cancelable: true, view: window, clientX: sRect.left + sRect.width/2, clientY: sRect.top + sRect.height/2, button: 0 };
+      sendButton.dispatchEvent(new MouseEvent('mousedown', { ...sOpts, buttons: 1 }));
+      sendButton.dispatchEvent(new MouseEvent('mouseup', { ...sOpts, buttons: 0 }));
+      sendButton.dispatchEvent(new MouseEvent('click', { ...sOpts, buttons: 0 }));
       sendButton.click();
       await sleep(1000);
 
@@ -492,6 +687,12 @@ async function executeInvite(action) {
 
       await sleep(500);
       console.log('[ActionExecutor] Clicking Send without a note button...');
+      // Dispatch full mouse event sequence for Ember compatibility
+      const swRect = sendWithoutNoteButton.getBoundingClientRect();
+      const swOpts = { bubbles: true, cancelable: true, view: window, clientX: swRect.left + swRect.width/2, clientY: swRect.top + swRect.height/2, button: 0 };
+      sendWithoutNoteButton.dispatchEvent(new MouseEvent('mousedown', { ...swOpts, buttons: 1 }));
+      sendWithoutNoteButton.dispatchEvent(new MouseEvent('mouseup', { ...swOpts, buttons: 0 }));
+      sendWithoutNoteButton.dispatchEvent(new MouseEvent('click', { ...swOpts, buttons: 0 }));
       sendWithoutNoteButton.click();
       await sleep(1000);
 
@@ -889,65 +1090,44 @@ async function executeEmail(action) {
     // Wait for page to fully load
     await sleep(3000);
 
-    // Find the Contact Info link (retry a few times)
-    let contactInfoLink = null;
-    for (let i = 0; i < 3; i++) {
-      contactInfoLink = document.querySelector(selectors.CONTACT_INFO.OPENER);
-      if (contactInfoLink) break;
-      console.log(`[ActionExecutor] Contact Info link not found, retry ${i + 1}/3...`);
-      await sleep(1500);
-    }
+    // Check if a mailto link is already on the page (user may have contact info open already)
+    let emailLink = document.querySelector('a[href^="mailto:"]');
 
-    if (!contactInfoLink) {
-      console.log('[ActionExecutor] Contact Info link not found after retries');
-      return { success: true, message: 'Contact Info not available', email: null };
-    }
-
-    console.log('[ActionExecutor] Opening Contact Info overlay...');
-    contactInfoLink.click();
-
-    // Wait for modal to appear with retries (increased timeout)
-    let modal = null;
-    for (let i = 0; i < 8; i++) {
-      await sleep(1500);
-      modal = document.querySelector(selectors.CONTACT_INFO.MODAL) ||
-              document.querySelector('.artdeco-modal__content') ||
-              document.querySelector('.artdeco-modal') ||
-              document.querySelector('[data-test-modal]') ||
-              document.querySelector('div[role="dialog"]');
-      if (modal) {
-        console.log('[ActionExecutor] Contact Info modal appeared');
-        break;
-      }
-      console.log(`[ActionExecutor] Waiting for modal to appear... (${i + 1}/8)`);
-    }
-
-    if (!modal) {
-      console.log('[ActionExecutor] Contact Info modal did not appear after waiting');
-      return { success: true, message: 'Contact Info modal did not open', email: null };
-    }
-
-    // Extra wait for modal content to fully load
-    console.log('[ActionExecutor] Waiting for modal content to load...');
-    await sleep(3000);
-
-    // Try to find email in the modal with retries
-    let emailLink = null;
-    for (let i = 0; i < 5; i++) {
-      // Try multiple selectors
-      emailLink = modal.querySelector(selectors.CONTACT_INFO.EMAIL_LINK) ||
-                  modal.querySelector(selectors.CONTACT_INFO.EMAIL_LINK_ALT) ||
-                  modal.querySelector('a[href^="mailto:"]') ||
-                  document.querySelector('.artdeco-modal a[href^="mailto:"]') ||
-                  document.querySelector('div[role="dialog"] a[href^="mailto:"]');
-
-      if (emailLink) {
-        console.log('[ActionExecutor] Email link found in modal');
-        break;
+    if (!emailLink) {
+      // Find the Contact Info link — try multiple selectors for LinkedIn 2025
+      let contactInfoLink = null;
+      const openerSelectors = [
+        'a[href*="overlay/contact-info"]',
+        'a[href*="contact-info"]',
+        '#top-card-text-details-contact-info',
+      ];
+      for (let i = 0; i < 3 && !contactInfoLink; i++) {
+        for (const sel of openerSelectors) {
+          contactInfoLink = document.querySelector(sel);
+          if (contactInfoLink) break;
+        }
+        if (!contactInfoLink) await sleep(1500);
       }
 
-      console.log(`[ActionExecutor] Email link not found yet, retry ${i + 1}/5...`);
-      await sleep(1000);
+      if (!contactInfoLink) {
+        console.log('[ActionExecutor] Contact Info link not found');
+        return { success: true, message: 'Contact Info not available', email: null };
+      }
+
+      console.log('[ActionExecutor] Opening Contact Info overlay...');
+      // Use dispatchEvent for reliable click handling in SPA context
+      contactInfoLink.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window }));
+
+      // Wait for mailto link to appear on the page (up to 10s)
+      // LinkedIn 2025 uses [role="dialog"] or #dialog-header — we just look for the mailto directly
+      for (let i = 0; i < 20; i++) {
+        await sleep(500);
+        emailLink = document.querySelector('a[href^="mailto:"]');
+        if (emailLink) {
+          console.log('[ActionExecutor] Email link found after opening contact info');
+          break;
+        }
+      }
     }
 
     let email = null;
@@ -991,8 +1171,9 @@ async function executeEmail(action) {
     }
 
     // Close the Contact Info modal
-    const closeButton = modal.querySelector(selectors.CONTACT_INFO.CLOSE_BUTTON) ||
-                        document.querySelector('button[aria-label="Dismiss"]');
+    const closeButton = document.querySelector('button[aria-label="Dismiss"]') ||
+                        document.querySelector('[role="dialog"] button[aria-label="Close"]') ||
+                        document.querySelector(selectors.CONTACT_INFO.CLOSE_BUTTON);
     if (closeButton) {
       closeButton.click();
       await sleep(300);

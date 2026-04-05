@@ -9,8 +9,448 @@
  * It has access to the page's DOM but not the extension's background context.
  */
 
-console.log('[Content Script] LinkedIn Automation extension loaded on:', window.location.href);
-console.log('[Content Script] Ready to receive messages from background script');
+// Bridge log function - sends logs to main world so they appear in the page console
+const csLog = (...args) => {
+  console.log(...args);
+  try {
+    window.postMessage({ type: '__LI_BRIDGE_LOG__', args: args.map(a => typeof a === 'object' ? JSON.stringify(a).substring(0, 300) : String(a)) }, '*');
+  } catch (e) {}
+};
+
+// Debug command — respond to status requests from page console
+window.addEventListener('message', (event) => {
+  if (event.data?.type !== '__LI_CS_STATUS__') return;
+  csLog(`[Content Script] STATUS: ${interceptedData.conversations.length} conversations parsed, profileUrn: ${cachedProfileUrn || 'null'}`);
+  if (interceptedData.conversations.length > 0) {
+    const sample = interceptedData.conversations.slice(0, 5).map(c => `${c.participant_name || 'MISSING'}|${c.participant_linkedin_id || 'no-id'}|avatar:${!!c.participant_avatar_url}`);
+    csLog(`[Content Script] Sample: ${sample.join(' || ')}`);
+  }
+});
+
+csLog('[Content Script] LinkedIn Automation extension loaded on:', window.location.href);
+csLog('[Content Script] Ready to receive messages from background script');
+
+// CRITICAL: Register interceptor listeners IMMEDIATELY at top of file,
+// before any other code that could throw and prevent listener registration.
+// Use a temporary queue until interceptedData is fully initialized.
+const __interceptQueue = [];
+window.addEventListener('message', (event) => {
+  if (event.data?.type === '__LI_NET_INTERCEPT__') {
+    csLog('[Content Script] 🎯 Intercept received, url:', event.data.url?.substring(0, 80));
+    __interceptQueue.push(event.data);
+  }
+});
+
+// Request replay from the page-context interceptor (it stores captures that happened before we loaded)
+// Fetch profile URN first so the parser can correctly identify "self" vs "other" participants
+setTimeout(async () => {
+  try {
+    if (typeof getMyProfileUrn === 'function') await getMyProfileUrn();
+  } catch (e) {}
+  csLog('[Content Script] Requesting replay (1st), profileUrn:', cachedProfileUrn || 'null');
+  window.postMessage({ type: '__LI_REPLAY_REQUEST__' }, '*');
+}, 100);
+setTimeout(() => {
+  csLog('[Content Script] Requesting replay (2nd)');
+  window.postMessage({ type: '__LI_REPLAY_REQUEST__' }, '*');
+}, 3000);
+
+/**
+ * Cache of intercepted messaging data from LinkedIn's own API calls.
+ * Populated by the network interceptor via window.postMessage.
+ */
+const interceptedData = {
+  conversations: [],          // Parsed conversation objects
+  messagesByConversation: {}, // { conversationId: [messages] }
+  lastUpdate: 0,
+  rawResponses: [],           // Last 5 raw responses for debugging
+};
+
+/**
+ * Parse LinkedIn 2025 GraphQL messaging response into conversations.
+ *
+ * Structure: data.data.messengerConversationsBySyncToken.elements[]
+ * Each element has:
+ *   - entityUrn: urn:li:msg_conversation:(urn:li:fsd_profile:XXX,2-threadId)
+ *   - backendUrn: urn:li:messagingThread:2-threadId
+ *   - conversationParticipants[]: {hostIdentityUrn, participantType.member.{firstName,lastName,profileUrl,profilePicture}}
+ *   - lastActivityAt, unreadCount
+ *   - messages[]: last messages in the thread
+ */
+function parseInterceptedConversations(data) {
+  const conversations = [];
+
+  // Find the GraphQL data wrapper — could be any messengerConversationsByXxx key
+  const dataRoot = data.data;
+  if (!dataRoot) return conversations;
+
+  const convWrapper = Object.keys(dataRoot)
+    .filter(k => k.startsWith('messengerConversations'))
+    .map(k => dataRoot[k])
+    .find(v => v && Array.isArray(v.elements));
+
+  if (!convWrapper) return conversations;
+
+  const elements = convWrapper.elements;
+
+  for (const conv of elements) {
+    try {
+      // Extract conversation ID from backendUrn (cleanest format)
+      // backendUrn: "urn:li:messagingThread:2-XXXXX"
+      const conversationId = conv.backendUrn?.match(/messagingThread:(2-[A-Za-z0-9_=-]+)/)?.[1] ||
+                             conv.entityUrn?.match(/,(2-[A-Za-z0-9_=-]+)\)/)?.[1];
+
+      if (!conversationId) continue;
+
+      // Find the OTHER participant (not self)
+      let participantName = 'Unknown';
+      let participantAvatar = null;
+      let participantLinkedinId = null;
+      let isOrganization = false;
+      let isSponsored = false;
+
+      // Only use profile URN for self-check if it's actually set — otherwise
+      // an empty string would match every participant (String.includes('') === true)
+      const myProfileUrnShort = cachedProfileUrn ? cachedProfileUrn.split(':').pop() : null;
+      const participants = conv.conversationParticipants || [];
+
+      // Helper: extract avatar from vector image
+      const getAvatar = (pic) => {
+        if (!pic?.rootUrl || !pic.artifacts?.length) return null;
+        const artifact = pic.artifacts.find(a => a.width === 200) ||
+                         pic.artifacts.find(a => a.width >= 100) ||
+                         pic.artifacts[0];
+        return artifact ? pic.rootUrl + artifact.fileIdentifyingUrlPathSegment : null;
+      };
+
+      for (const p of participants) {
+        // Skip self (only if we have the profile URN)
+        if (myProfileUrnShort && p.hostIdentityUrn?.includes(myProfileUrnShort)) continue;
+
+        const ptype = p.participantType || {};
+        const member = ptype.member;
+        const org = ptype.organization;
+        const custom = ptype.custom;
+
+        if (member) {
+          // Regular member/person
+          const firstName = member.firstName?.text || '';
+          const lastName = member.lastName?.text || '';
+          participantName = `${firstName} ${lastName}`.trim() || 'Unknown';
+          const urlMatch = member.profileUrl?.match(/\/in\/([^/?]+)/);
+          if (urlMatch) participantLinkedinId = urlMatch[1];
+          participantAvatar = getAvatar(member.profilePicture);
+        } else if (org) {
+          // Business/company page — participantType.organization
+          isOrganization = true;
+          participantName = org.name?.text || 'Organization';
+          participantAvatar = getAvatar(org.logo);
+          // Extract company slug from pageUrl as an ID
+          // pageUrl: "https://www.linkedin.com/company/companyname/"
+          const slugMatch = org.pageUrl?.match(/\/company\/([^/?]+)/);
+          if (slugMatch) participantLinkedinId = `company:${slugMatch[1]}`;
+        } else if (custom) {
+          // Custom participant type (LinkedIn system account for sponsored/offers)
+          isSponsored = true;
+          participantName = custom.name?.text || 'LinkedIn';
+          participantAvatar = getAvatar(custom.logo || custom.image);
+        } else {
+          // Fallback: try any name/image fields directly on the participant
+          participantName = p.name?.text || p.preview?.text || 'Unknown';
+        }
+        break;
+      }
+
+      // Also check top-level conv.title for group chats / named conversations
+      if (participantName === 'Unknown' && conv.title?.text) {
+        participantName = conv.title.text;
+      }
+
+      // Detect sponsored/promotional conversations
+      if (conv.categories?.includes('SPONSORED') ||
+          conv.categories?.includes('INMAIL_SPONSORED') ||
+          conv.contentMetadata?.sponsoredConversationContent) {
+        isSponsored = true;
+      }
+
+      // Skip sponsored/promotional conversations — they're not real user messages
+      if (isSponsored) {
+        console.log(`[Content Script] Skipping sponsored conversation: ${participantName}`);
+        continue;
+      }
+
+      // Skip archived conversations (user moved them out of inbox)
+      if (conv.categories?.includes('ARCHIVE')) {
+        continue;
+      }
+
+      // Extract last message from messages array (if present)
+      let lastMessageText = '';
+      const msgs = conv.messages?.elements || conv.messages || [];
+      if (Array.isArray(msgs) && msgs.length > 0) {
+        const lastMsg = msgs[msgs.length - 1];
+        lastMessageText = lastMsg?.body?.text || '';
+      }
+
+      conversations.push({
+        // Backend expects snake_case field names (see InboxController::sync validation)
+        linkedin_conversation_id: conversationId,
+        participant_name: participantName,
+        participant_avatar_url: participantAvatar,
+        participant_linkedin_id: participantLinkedinId,
+        last_message_preview: lastMessageText,
+        last_message_at: conv.lastActivityAt ? new Date(conv.lastActivityAt).toISOString() : null,
+        unread_count: conv.unreadCount || 0,
+        is_unread: (conv.unreadCount || 0) > 0,
+      });
+    } catch (e) {
+      console.warn('[Content Script] Failed to parse conversation:', e.message);
+    }
+  }
+
+  return conversations;
+}
+
+/**
+ * Parse LinkedIn 2025 GraphQL messages response.
+ * Structure: data.data.messengerMessagesBySyncToken.elements[]
+ * Each element: {entityUrn, backendUrn, body.text, deliveredAt, sender.hostIdentityUrn}
+ */
+function parseInterceptedMessages(data, conversationId) {
+  const messages = [];
+  const dataRoot = data.data;
+  if (!dataRoot) return messages;
+
+  // Find messages wrapper
+  const msgWrapper = Object.keys(dataRoot)
+    .filter(k => k.startsWith('messengerMessages'))
+    .map(k => dataRoot[k])
+    .find(v => v && Array.isArray(v.elements));
+
+  if (!msgWrapper) return messages;
+
+  const myProfileUrnShort = cachedProfileUrn?.split(':').pop() || '';
+
+  for (const msg of msgWrapper.elements) {
+    if (!msg.body?.text) continue;
+
+    // Check if sender is self
+    const senderUrn = msg.sender?.hostIdentityUrn || '';
+    const isFromMe = myProfileUrnShort && senderUrn.includes(myProfileUrnShort);
+
+    // Extract conversation ID from entityUrn if not provided
+    let msgConvId = conversationId;
+    if (!msgConvId) {
+      msgConvId = msg.entityUrn?.match(/,(2-[A-Za-z0-9_=-]+)\)/)?.[1] || '';
+    }
+
+    messages.push({
+      conversationId: msgConvId,
+      content: msg.body.text,
+      senderName: isFromMe ? 'You' : (msg.sender?.participantType?.member?.firstName?.text || 'Unknown'),
+      timestamp: msg.deliveredAt || 0,
+      isFromMe,
+      linkedinMessageId: msg.backendUrn || msg.entityUrn || null,
+    });
+  }
+
+  return messages.sort((a, b) => a.timestamp - b.timestamp);
+}
+
+// Listen for debug trigger from page console
+window.addEventListener('message', (event) => {
+  if (event.data?.type !== '__LI_DEBUG__') return;
+  console.log('=== LinkedIn Interceptor Debug ===');
+  console.log('Total conversations parsed:', interceptedData.conversations.length);
+  console.log('Last update:', interceptedData.lastUpdate ? new Date(interceptedData.lastUpdate).toLocaleTimeString() : 'never');
+  console.log('Raw responses captured:', interceptedData.rawResponses.length);
+  console.log('Recent responses:');
+  interceptedData.rawResponses.forEach((r, i) => {
+    console.log(`  ${i + 1}. included=${r.includedCount} elements=${r.elementsCount} | ${r.url.substring(0, 120)}`);
+  });
+  console.log('Conversations:');
+  console.table(interceptedData.conversations.map(c => ({
+    id: c.linkedin_conversation_id?.substring(0, 20) + '...',
+    name: c.participant_name,
+    lastMsg: c.lastMessage?.substring(0, 30)
+  })));
+});
+
+// Process a single intercept message (called from both listener and queue flush)
+function handleInterceptMessage(eventData) {
+  const { url, data } = eventData;
+
+  // Keep last 10 raw responses for debugging
+  interceptedData.rawResponses = [
+    { url, keys: Object.keys(data), includedCount: data.included?.length || 0, elementsCount: (data.data?.elements || data.elements || []).length, time: Date.now() },
+    ...interceptedData.rawResponses.slice(0, 9)
+  ];
+
+  // Parse conversations from the response
+  const conversations = parseInterceptedConversations(data);
+  if (conversations.length > 0) {
+    // Track which conversations have NEW messages since last sync
+    const previousByConvId = new Map(interceptedData.conversations.map(c => [c.linkedin_conversation_id, c]));
+    const conversationsWithNewMessages = [];
+
+    for (const conv of conversations) {
+      const previous = previousByConvId.get(conv.linkedin_conversation_id);
+      // New message detected if: last_message_at is newer than what we had, OR conversation is new and unread
+      if (previous) {
+        const prevTime = previous.last_message_at ? new Date(previous.last_message_at).getTime() : 0;
+        const newTime = conv.last_message_at ? new Date(conv.last_message_at).getTime() : 0;
+        if (newTime > prevTime) {
+          conversationsWithNewMessages.push(conv.linkedin_conversation_id);
+        }
+      }
+    }
+
+    // Merge with existing — newer data wins
+    const existing = new Map(previousByConvId);
+    for (const conv of conversations) {
+      existing.set(conv.linkedin_conversation_id, conv);
+    }
+    interceptedData.conversations = Array.from(existing.values());
+    interceptedData.lastUpdate = Date.now();
+
+    // Also store in chrome.storage for persistence
+    chrome.storage.local.set({ intercepted_conversations: interceptedData.conversations });
+
+    csLog(`[Content Script] ✅ Intercepted ${conversations.length} conversations (total: ${interceptedData.conversations.length})`);
+
+    // Auto-sync: if any conversation has new messages since last time,
+    // push them to the backend immediately (catches up after LinkedIn tab was closed)
+    if (conversationsWithNewMessages.length > 0) {
+      csLog(`[Content Script] 🔄 Auto-sync: ${conversationsWithNewMessages.length} conversations have new messages`);
+      chrome.runtime.sendMessage({
+        type: 'AUTO_SYNC_CONVERSATIONS',
+        conversationIds: conversationsWithNewMessages,
+        conversations: interceptedData.conversations.filter(c => conversationsWithNewMessages.includes(c.linkedin_conversation_id))
+      }).catch(() => {});
+    }
+  }
+
+  // Parse messages if this is a conversation-specific response
+  if (url.includes('events') || url.includes('messengerMessages')) {
+    // Try to extract conversation ID from URL
+    const threadMatch = url.match(/conversations\/([^/?]+)/) || url.match(/conversationUrn[^)]*,([^)]+)\)/);
+    const convId = threadMatch?.[1];
+    if (convId) {
+      const messages = parseInterceptedMessages(data, convId);
+      if (messages.length > 0) {
+        interceptedData.messagesByConversation[convId] = messages;
+        csLog(`[Content Script] Intercepted ${messages.length} messages for conv ${convId.substring(0, 20)}`);
+      }
+    }
+  }
+}
+
+// Flush any messages that were queued before handleInterceptMessage was defined
+csLog(`[Content Script] Flushing ${__interceptQueue.length} queued intercept messages`);
+for (const queued of __interceptQueue) {
+  handleInterceptMessage(queued);
+}
+__interceptQueue.length = 0;
+
+// Replace the early queue listener with direct processing
+window.addEventListener('message', (event) => {
+  if (event.data?.type !== '__LI_NET_INTERCEPT__') return;
+  handleInterceptMessage(event.data);
+});
+
+// Listen for realtime events pushed from LinkedIn's SSE stream
+// Parse the message data directly from the realtime payload and send to backend immediately
+window.addEventListener('message', async (event) => {
+  if (event.data?.type !== '__LI_REALTIME__') return;
+  const { data } = event.data;
+
+  try {
+    const profileUrn = await getMyProfileUrn();
+    const myUrnShort = profileUrn?.split(':').pop();
+
+    // Recursively find message entities in the realtime payload
+    const findMessages = (obj, depth = 0, found = []) => {
+      if (!obj || depth > 6 || typeof obj !== 'object') return found;
+      // Looks like a message: has body.text + entityUrn/backendUrn
+      if (obj.body?.text && (obj.entityUrn || obj.backendUrn)) {
+        found.push(obj);
+      }
+      for (const key of Object.keys(obj)) {
+        if (typeof obj[key] === 'object') findMessages(obj[key], depth + 1, found);
+      }
+      return found;
+    };
+
+    const messages = findMessages(data);
+    if (messages.length === 0) return;
+
+    csLog(`[Content Script] 📡 Realtime: ${messages.length} new message(s)`);
+
+    // Parse each message and send to backend directly via background
+    for (const msg of messages) {
+      // Extract conversation ID from the message's entityUrn.
+      // CAUTION: The "2-XXX" in a message URN is the MESSAGE ID, not the conversation ID.
+      // The message ID encodes: "{timestamp}-{seq}&{conversationUuid}"
+      // We need to decode it, split by &, and re-encode the conversation part.
+      const msgIdMatch = msg.entityUrn?.match(/,(2-[A-Za-z0-9_=+/\-]+)\)/);
+      if (!msgIdMatch) continue;
+
+      let conversationId = null;
+      try {
+        // Strip "2-" prefix, base64 decode
+        const b64 = msgIdMatch[1].substring(2);
+        const decoded = atob(b64);
+        // Format: "timestamp-seq&convUuid_NNN"
+        const ampIdx = decoded.indexOf('&');
+        if (ampIdx === -1) {
+          // No & means this IS the conversation ID (not a message compound ID)
+          conversationId = msgIdMatch[1];
+        } else {
+          const convUuid = decoded.substring(ampIdx + 1);
+          // Re-encode as base64 to match the format used by conversation list sync
+          conversationId = '2-' + btoa(convUuid);
+        }
+      } catch (e) {
+        // Fallback: use the raw ID as-is (might work if it's already a conversation ID)
+        conversationId = msgIdMatch[1];
+      }
+
+      if (!conversationId) continue;
+
+      // Determine if it's from self
+      const senderUrn = msg.sender?.hostIdentityUrn || msg['*sender'] || '';
+      const isFromMe = myUrnShort && senderUrn.includes(myUrnShort);
+      if (isFromMe) continue; // Skip our own messages
+
+      const senderName = msg.sender?.participantType?.member?.firstName?.text
+        ? `${msg.sender.participantType.member.firstName.text} ${msg.sender.participantType.member.lastName?.text || ''}`.trim()
+        : 'Unknown';
+
+      const messagePayload = {
+        conversationId,
+        participantName: senderName,
+        message: {
+          content: msg.body.text,
+          sender_name: senderName,
+          timestamp: msg.deliveredAt || Date.now(),
+          sent_at: new Date(msg.deliveredAt || Date.now()).toISOString(),
+          linkedin_message_id: msg.backendUrn || msg.entityUrn || null,
+          is_from_me: false,
+        }
+      };
+
+      csLog(`[Content Script] 📡 Sending realtime message to backend: "${msg.body.text.substring(0, 40)}" from ${senderName}`);
+
+      // Send to background which forwards to backend
+      chrome.runtime.sendMessage({
+        type: 'REALTIME_INCOMING_MESSAGE',
+        payload: messagePayload
+      }).catch(() => {});
+    }
+  } catch (e) {
+    console.error('[Content Script] Realtime parsing error:', e);
+  }
+});
 
 /**
  * Initialize queue processor when page loads
@@ -523,680 +963,106 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 
   // Sync conversations via LinkedIn API (from content script for correct origin)
+  // Sync conversations — uses MessageExtractor click method (reliable) with
+  // REST message fetching. LinkedIn removed their GraphQL/REST conversation list
+  // endpoints (500/400) so click-based extraction is the only working method.
   if (message.type === 'SYNC_CONVERSATIONS_VIA_API') {
-    console.log('[Content Script] Sync conversations via API requested');
+    console.log('[Content Script] Sync conversations requested');
 
-    const syncViaApi = async () => {
-      const count = message.count || 50;
+    // LinkedIn uses a "Load more conversations" button (not infinite scroll).
+    // Click it repeatedly until all conversations are loaded or the button disappears.
+    const loadMoreConversations = async (targetCount) => {
+      csLog(`[Content Script] Loading more conversations via button click (target: ${targetCount})`);
 
-      // Get CSRF token
-      const csrfToken = getCsrfToken();
-      if (!csrfToken) {
-        throw new Error('CSRF token not found. Please refresh the page.');
-      }
+      const maxAttempts = 20; // Max ~400 conversations (20 per click)
 
-      // Get profile URN first (cached - needed for GraphQL endpoints)
-      const profileUrn = await getMyProfileUrn();
-      if (profileUrn) {
-        console.log('[Content Script] Using cached profile URN:', profileUrn);
-      }
+      for (let i = 0; i < maxAttempts; i++) {
+        if (interceptedData.conversations.length >= targetCount) break;
 
-      // Try GraphQL endpoints (Waalaxy-style - most reliable)
-      const graphqlAttempts = [
-        // Waalaxy-style GraphQL endpoint (MOST RELIABLE)
-        {
-          url: profileUrn
-            ? `https://www.linkedin.com/voyager/api/voyagerMessagingGraphQL/graphql?queryId=voyagerMessagingDashMessengerConversations.58f000d802f3d66a99c09d8ad7f5544b&variables=(categories:List(PRIMARY_INBOX,INBOX),count:${count},mailboxUrn:${encodeURIComponent(profileUrn)})`
-            : null,
-          accept: 'application/vnd.linkedin.normalized+json+2.1',
-          name: 'Waalaxy GraphQL'
-        },
-        // Fallback: Standard graphql endpoint
-        {
-          url: 'https://www.linkedin.com/voyager/api/graphql?queryId=voyagerMessagingDashAffiliatedMailboxes.da7e8047e61ae87c4b97ee31fed7d934',
-          accept: 'application/vnd.linkedin.normalized+json+2.1',
-          name: 'Affiliated Mailboxes'
-        },
-      ];
-
-      for (const attempt of graphqlAttempts) {
-        if (!attempt.url) continue;
-
-        try {
-          console.log(`[Content Script] Trying ${attempt.name}:`, attempt.url);
-
-          const response = await linkedInFetch(attempt.url, {
-            method: 'GET',
-            headers: {
-              'accept': attempt.accept,
-              'csrf-token': csrfToken,
-              'x-restli-protocol-version': '2.0.0',
-              'x-li-lang': 'en_US',
-              'x-li-track': JSON.stringify({
-                clientVersion: '1.13.41695',
-                mpVersion: '1.13.41695',
-                osName: 'web',
-                timezoneOffset: 5,
-                timezone: 'Asia/Karachi',
-                deviceFormFactor: 'DESKTOP',
-                mpName: 'voyager-web',
-                displayDensity: 2,
-                displayWidth: 2940,
-                displayHeight: 1912
-              })
-            }
-          });
-
-          console.log(`[Content Script] ${attempt.name} status:`, response.status);
-
-          if (response.ok) {
-            const data = await response.json();
-            console.log(`[Content Script] ${attempt.name} keys:`, Object.keys(data));
-            console.log(`[Content Script] ${attempt.name} included:`, data?.included?.length || 0);
-
-            // Log sample data for debugging
-            if (data?.included?.length > 0) {
-              console.log('[Content Script] Sample entity types:',
-                [...new Set(data.included.slice(0, 10).map(e => e.$type || e.entityUrn?.split(':')[2]))]);
-            }
-
-            // Try to parse as conversations
-            const conversations = parseGraphQLConversations(data);
-            if (conversations.length > 0) {
-              console.log(`[Content Script] ${attempt.name} found ${conversations.length} conversations!`);
-              return conversations;
-            }
-
-            // Also try legacy parser
-            const legacyConvs = parseConversationsFromResponse(data);
-            if (legacyConvs.length > 0) {
-              console.log(`[Content Script] ${attempt.name} (legacy parser) found ${legacyConvs.length} conversations!`);
-              return legacyConvs;
-            }
+        // Find "Load more conversations" button by text
+        let loadMoreButton = null;
+        for (const btn of document.querySelectorAll('button')) {
+          const text = btn.textContent?.trim() || '';
+          if (text.includes('Load more conversations') || text === 'Load more') {
+            loadMoreButton = btn;
+            break;
           }
-        } catch (error) {
-          console.log(`[Content Script] ${attempt.name} error:`, error.message);
         }
-      }
 
-      // FIRST: Try DOM-based extraction (fast, doesn't require API)
-      console.log('[Content Script] Trying DOM-based extraction first...');
-      const domConversations = await extractConversationsFromDOM();
-      if (domConversations.length > 0) {
-        console.log(`[Content Script] DOM extraction found ${domConversations.length} conversations`);
-        return domConversations;
-      }
-
-      // Fallback: Try REST endpoints - legacy endpoint first (known to work)
-      const endpoints = [
-        // Method 1: Legacy endpoint (WORKS!)
-        {
-          url: `https://www.linkedin.com/voyager/api/messaging/conversations?keyVersion=LEGACY_INBOX&count=${count}`,
-          name: 'Legacy INBOX'
-        },
-        // Method 2: Dash conversations (may not work)
-        {
-          url: `https://www.linkedin.com/voyager/api/voyagerMessagingDashMessengerConversations?decorationId=com.linkedin.voyager.dash.deco.messaging.FullConversation-65&q=search&count=${count}`,
-          name: 'Dash v65'
-        },
-      ];
-
-      let lastError = null;
-      let allConversations = [];
-
-      for (const {url, name} of endpoints) {
-        try {
-          console.log(`[Content Script] Trying ${name} endpoint:`, url);
-
-          const response = await linkedInFetch(url, {
-            method: 'GET',
-            headers: {
-              'accept': 'application/vnd.linkedin.normalized+json+2.1',
-              'csrf-token': csrfToken,
-              'x-restli-protocol-version': '2.0.0',
-              'x-li-lang': 'en_US'
-            }
-          });
-
-          console.log(`[Content Script] ${name} response status:`, response.status);
-
-          if (!response.ok) {
-            const errorText = await response.text();
-            console.log(`[Content Script] ${name} error:`, errorText.substring(0, 200));
-            lastError = new Error(`API error: ${response.status}`);
-            continue;
-          }
-
-          const data = await response.json();
-          console.log(`[Content Script] ${name} raw data keys:`, Object.keys(data));
-          console.log(`[Content Script] ${name} elements count:`, data?.data?.elements?.length || data?.elements?.length || 0);
-          console.log(`[Content Script] ${name} included count:`, data?.included?.length || 0);
-
-          // Parse conversations
-          const conversations = parseConversationsFromResponse(data);
-          console.log(`[Content Script] ${name} parsed:`, conversations.length, 'conversations');
-
-          if (conversations.length > 0) {
-            return conversations;
-          }
-
-          // If we got a response but no conversations parsed, store the data for debugging
-          if (data?.included?.length > 0) {
-            console.log('[Content Script] Sample included entity:', JSON.stringify(data.included[0]).substring(0, 500));
-          }
-        } catch (error) {
-          console.log(`[Content Script] ${name} error:`, error.message);
-          lastError = error;
-        }
-      }
-
-      // If all API endpoints failed, fall back to MessageExtractor click method
-      console.log('[Content Script] All API endpoints failed, trying MessageExtractor...');
-
-      // Check if we're on the messaging page
-      if (!window.location.href.includes('/messaging')) {
-        throw new Error('Please navigate to LinkedIn Messaging page first, then try syncing again.');
-      }
-
-      // Use MessageExtractor's click-based extraction (this gets real thread IDs)
-      if (window.MessageExtractor) {
-        try {
-          console.log('[Content Script] Using MessageExtractor.extractConversationsWithIds (click method)...');
-          const conversations = await window.MessageExtractor.extractConversationsWithIds(count);
-          if (conversations.length > 0) {
-            console.log(`[Content Script] MessageExtractor found ${conversations.length} conversations`);
-            return conversations;
-          }
-        } catch (extractorError) {
-          console.log('[Content Script] MessageExtractor failed:', extractorError.message);
-        }
-      } else {
-        console.log('[Content Script] MessageExtractor not available');
-      }
-
-      throw lastError || new Error('All endpoints failed - no conversations found');
-    };
-
-    // Helper function to extract conversations from DOM (fallback)
-    const extractConversationsFromDOM = async () => {
-      console.log('[Content Script] Extracting conversations from DOM...');
-
-      const conversations = [];
-
-      // Wait for conversation list to load
-      await new Promise(resolve => setTimeout(resolve, 1000));
-
-      // Try different selectors for conversation items
-      const selectors = [
-        '.msg-conversations-container__conversations-list .msg-conversation-listitem',
-        '.msg-conversations-container__conversations-list li',
-        '[data-control-name="overlay.view_conversation"]',
-        '.msg-conversation-card',
-        '.msg-overlay-list-bubble',
-      ];
-
-      let conversationElements = [];
-      for (const selector of selectors) {
-        conversationElements = document.querySelectorAll(selector);
-        if (conversationElements.length > 0) {
-          console.log(`[Content Script] Found ${conversationElements.length} conversations with selector: ${selector}`);
+        if (!loadMoreButton) {
+          csLog(`[Content Script] No more "Load more" button — stopping (${interceptedData.conversations.length} total)`);
           break;
         }
+
+        const countBefore = interceptedData.conversations.length;
+
+        // Click the button
+        loadMoreButton.scrollIntoView({ behavior: 'instant', block: 'end' });
+        await new Promise(r => setTimeout(r, 300));
+        loadMoreButton.click();
+
+        // Wait for LinkedIn to fetch + interceptor to capture + content script to parse
+        await new Promise(r => setTimeout(r, 2000));
+
+        const countAfter = interceptedData.conversations.length;
+        if (countAfter === countBefore) {
+          csLog(`[Content Script] Click ${i + 1} didn't add new conversations, stopping`);
+          break;
+        }
+        csLog(`[Content Script] Click ${i + 1}: ${countAfter} conversations captured`);
       }
+    };
 
-      if (conversationElements.length === 0) {
-        console.log('[Content Script] No conversation elements found in DOM');
-        return [];
-      }
+    const syncConversations = async () => {
+      const count = message.count || 100;
 
-      for (const el of conversationElements) {
-        try {
-          // Extract conversation ID from link or data attribute
-          let conversationId = null;
-
-          // Method 1: Look for link with thread URL
-          const link = el.querySelector('a[href*="/messaging/thread/"]') || el.querySelector('a[href*="/messaging/"]');
-          if (link) {
-            const match = link.href.match(/\/messaging\/thread\/([^/?]+)/) || link.href.match(/\/messaging\/([^/?]+)/);
-            if (match && match[1] !== 'thread') {
-              conversationId = match[1];
-            }
-          }
-
-          // Method 2: Try data attributes
-          if (!conversationId) {
-            conversationId = el.dataset?.conversationId || el.dataset?.threadId || el.dataset?.entityUrn;
-          }
-
-          // Method 3: Look for any link that might contain conversation ID
-          if (!conversationId) {
-            const allLinks = el.querySelectorAll('a[href]');
-            for (const a of allLinks) {
-              const href = a.href;
-              const match = href.match(/thread\/([^/?]+)/) || href.match(/conversation[=\/]([^/?&]+)/);
-              if (match) {
-                conversationId = match[1];
-                break;
-              }
-            }
-          }
-
-          // Method 4: Look for conversation ID in nested elements
-          if (!conversationId) {
-            // Check if the element or any child has a data attribute with the conversation ID
-            const allElements = [el, ...el.querySelectorAll('*')];
-            for (const elem of allElements) {
-              // Look through all data attributes
-              for (const attr of elem.attributes || []) {
-                if (attr.name.startsWith('data-') && attr.value) {
-                  // LinkedIn conversation IDs typically start with "2-" and are base64-like
-                  if (attr.value.match(/^2-[A-Za-z0-9_=-]+$/)) {
-                    conversationId = attr.value;
-                    console.log('[Content Script] Found conversation ID in data attribute:', attr.name);
-                    break;
-                  }
-                }
-              }
-              if (conversationId) break;
-            }
-          }
-
-          // Method 5: Look in onclick handlers or other attributes
-          if (!conversationId) {
-            const elemWithOnClick = el.querySelector('[onclick*="thread"]') || el.querySelector('[data-tracking-control-name*="conversation"]');
-            if (elemWithOnClick) {
-              const onclick = elemWithOnClick.getAttribute('onclick') || '';
-              const match = onclick.match(/thread\/([^'"\/]+)/) || onclick.match(/2-[A-Za-z0-9_=-]+/);
-              if (match) {
-                conversationId = match[1] || match[0];
-              }
-            }
-          }
-
-          // IMPORTANT: Skip ember IDs - they are NOT conversation IDs
-          if (conversationId && conversationId.startsWith('ember')) {
-            console.log('[Content Script] Skipping ember ID:', conversationId);
-            conversationId = null;
-          }
-
-          // Log for debugging
-          if (!conversationId) {
-            console.log('[Content Script] Could not extract ID from element. Outer HTML:', el.outerHTML.substring(0, 500));
-            continue;
-          }
-
-          // Validate conversation ID format (should be like "2-xxx" for messaging threads)
-          if (!conversationId.match(/^2-[A-Za-z0-9_=-]+$/)) {
-            console.log('[Content Script] Invalid conversation ID format:', conversationId);
-            continue;
-          }
-
-          console.log('[Content Script] Extracted valid conversation ID:', conversationId);
-
-          // Extract participant name - try multiple selectors
-          let participantName = 'Unknown';
-          const nameSelectors = [
-            '.msg-conversation-card__participant-names',
-            '.msg-conversation-listitem__participant-names',
-            '.msg-conversation-card__row--headline',
-            '.msg-conversation-listitem__title',
-            '.msg-selectable-entity__title',
-            '[class*="participant-name"]',
-            'h3',
-            '.artdeco-entity-lockup__title'
-          ];
-          for (const sel of nameSelectors) {
-            const nameEl = el.querySelector(sel);
-            if (nameEl && nameEl.textContent.trim()) {
-              participantName = nameEl.textContent.trim();
-              break;
-            }
-          }
-
-          // Extract avatar - try multiple selectors
-          let participantAvatarUrl = null;
-          const avatarEl = el.querySelector('img.presence-entity__image, img.msg-facepile-grid__img, img[class*="avatar"], .msg-selectable-entity__img img, img');
-          if (avatarEl && avatarEl.src && !avatarEl.src.includes('data:')) {
-            participantAvatarUrl = avatarEl.src;
-          }
-
-          // Extract last message preview
-          let lastMessagePreview = null;
-          const previewSelectors = [
-            '.msg-conversation-card__message-snippet',
-            '.msg-conversation-listitem__message-snippet',
-            '.msg-selectable-entity__message-snippet',
-            '[class*="message-snippet"]',
-            '.msg-conversation-card__body',
-            'p'
-          ];
-          for (const sel of previewSelectors) {
-            const previewEl = el.querySelector(sel);
-            if (previewEl && previewEl.textContent.trim()) {
-              lastMessagePreview = previewEl.textContent.trim();
-              break;
-            }
-          }
-
-          // Extract time
-          let lastMessageAt = null;
-          const timeEl = el.querySelector('.msg-conversation-card__time-stamp, .msg-conversation-listitem__time-stamp, time, [class*="time-stamp"]');
-          if (timeEl) {
-            const dateTime = timeEl.getAttribute('datetime');
-            if (dateTime) {
-              lastMessageAt = dateTime;
-            } else if (timeEl.textContent) {
-              // Try to parse relative time like "2h" or "3d"
-              lastMessageAt = new Date().toISOString(); // Fallback to now
-            }
-          }
-
-          // Check if unread
-          const isUnread = el.classList.contains('msg-conversation-card--unread') ||
-                          el.classList.contains('active') ||
-                          el.querySelector('.notification-badge, [class*="unread"]') !== null;
-
-          conversations.push({
-            linkedin_conversation_id: conversationId,
-            participant_name: participantName,
-            participant_linkedin_id: null, // Not easily available from DOM
-            participant_profile_url: null,
-            participant_avatar_url: participantAvatarUrl,
-            last_message_preview: lastMessagePreview,
-            last_message_at: lastMessageAt,
-            is_unread: isUnread,
-            unread_count: isUnread ? 1 : 0,
-          });
-        } catch (e) {
-          console.log('[Content Script] Error parsing conversation element:', e);
+      // Ensure we're on the messaging page so scrolling works
+      if (!window.location.href.includes('/messaging')) {
+        csLog('[Content Script] Navigating to messaging to trigger interception...');
+        window.location.href = 'https://www.linkedin.com/messaging/';
+        for (let i = 0; i < 15; i++) {
+          await new Promise(r => setTimeout(r, 1000));
+          if (interceptedData.conversations.length > 0) break;
+        }
+      } else {
+        // Wait briefly for initial interception
+        for (let i = 0; i < 5; i++) {
+          if (interceptedData.conversations.length > 0) break;
+          await new Promise(r => setTimeout(r, 500));
         }
       }
 
-      console.log(`[Content Script] DOM extraction complete: ${conversations.length} conversations extracted`);
-      return conversations;
-    };
+      // Click "Load more conversations" button to load all (up to target count)
+      if (interceptedData.conversations.length > 0 && interceptedData.conversations.length < count) {
+        await loadMoreConversations(count);
+      }
 
-    // Helper function to parse GraphQL conversation responses
-    const parseGraphQLConversations = (data) => {
-      const conversations = [];
+      // Strategy 1: Return intercepted data (now includes all scrolled conversations)
+      if (interceptedData.conversations.length > 0) {
+        const age = Date.now() - interceptedData.lastUpdate;
+        csLog(`[Content Script] Returning ${interceptedData.conversations.length} intercepted conversations (${Math.round(age / 1000)}s old)`);
+        return interceptedData.conversations.slice(0, count);
+      }
 
+      // Fallback: check chrome.storage for stale intercepted data
       try {
-        // GraphQL responses can have different structures
-        const results = data?.data?.messengerConversationsBySyncToken?.elements ||
-                       data?.data?.messengerConversations?.elements ||
-                       data?.data?.conversationList?.elements ||
-                       data?.elements ||
-                       [];
-
-        console.log('[Content Script] GraphQL elements found:', results.length);
-
-        for (const conv of results) {
-          try {
-            // Extract conversation ID
-            let conversationId = null;
-            const backendUrn = conv.backendUrn || conv.entityUrn || conv.conversationUrn;
-
-            if (backendUrn) {
-              const match = backendUrn.match(/messagingThread:([^,)]+)/) ||
-                           backendUrn.match(/,([^)]+)\)/);
-              if (match) {
-                conversationId = match[1];
-              }
-            }
-
-            if (!conversationId) continue;
-
-            // Get participant info
-            let participantName = 'Unknown';
-            let participantLinkedinId = null;
-            let participantProfileUrl = null;
-            let participantAvatarUrl = null;
-
-            const participants = conv.participants || conv.conversationParticipants || [];
-            for (const p of participants) {
-              const profile = p.participantProfile || p.profile || p;
-              if (profile) {
-                participantName = `${profile.firstName || ''} ${profile.lastName || ''}`.trim() || profile.name || 'Unknown';
-                participantLinkedinId = profile.publicIdentifier;
-                participantProfileUrl = participantLinkedinId
-                  ? `https://www.linkedin.com/in/${participantLinkedinId}/`
-                  : null;
-
-                // Avatar
-                const picture = profile.profilePicture?.displayImageReference?.vectorImage ||
-                               profile.picture;
-                if (picture?.rootUrl && picture?.artifacts?.length) {
-                  const artifact = picture.artifacts[picture.artifacts.length - 1];
-                  participantAvatarUrl = picture.rootUrl + artifact.fileIdentifyingUrlPathSegment;
-                }
-                break;
-              }
-            }
-
-            // Get last message
-            let lastMessagePreview = null;
-            if (conv.lastMessage?.body?.text) {
-              lastMessagePreview = conv.lastMessage.body.text;
-            }
-
-            conversations.push({
-              linkedin_conversation_id: conversationId,
-              participant_name: participantName,
-              participant_linkedin_id: participantLinkedinId,
-              participant_profile_url: participantProfileUrl,
-              participant_avatar_url: participantAvatarUrl,
-              last_message_preview: lastMessagePreview,
-              last_message_at: conv.lastActivityAt ? new Date(conv.lastActivityAt).toISOString() : null,
-              is_unread: (conv.unreadCount || 0) > 0,
-              unread_count: conv.unreadCount || 0,
-            });
-          } catch (e) {
-            console.log('[Content Script] Error parsing GraphQL conversation:', e);
-          }
+        const stored = await chrome.storage.local.get('intercepted_conversations');
+        if (stored.intercepted_conversations?.length > 0) {
+          csLog(`[Content Script] Using ${stored.intercepted_conversations.length} stored conversations (stale)`);
+          return stored.intercepted_conversations.slice(0, count);
         }
-      } catch (e) {
-        console.log('[Content Script] GraphQL parse error:', e);
-      }
+      } catch (e) { /* ignore */ }
 
-      return conversations;
+      throw new Error('No conversations found. Open LinkedIn Messaging and try again.');
     };
 
-    // Helper function to parse conversations (handles both legacy and new formats)
-    const parseConversationsFromResponse = (response) => {
-      const conversations = [];
-      const included = response.included || [];
-
-      // Create lookup map for included entities
-      const entityMap = {};
-      for (const entity of included) {
-        if (entity.entityUrn) {
-          entityMap[entity.entityUrn] = entity;
-        }
-        if (entity['$id']) {
-          entityMap[entity['$id']] = entity;
-        }
-      }
-
-      // Handle legacy format: data.*elements contains URN references
-      let elements = response.data?.elements || response.elements || [];
-
-      // If elements is empty but we have *elements URNs, resolve them
-      if (elements.length === 0 && response.data?.['*elements']) {
-        const elementUrns = response.data['*elements'];
-        console.log('[Content Script] Legacy format - resolving', elementUrns.length, 'URNs');
-        elements = elementUrns.map(urn => entityMap[urn]).filter(Boolean);
-      }
-
-      console.log('[Content Script] Parsing - elements:', elements.length, 'included:', included.length);
-
-      for (const element of elements) {
-        try {
-          // Get conversation ID - handle multiple URN formats
-          let conversationId = null;
-          const urn = element.backendConversationUrn || element.entityUrn || element['*conversation'];
-
-          if (urn) {
-            // Format: urn:li:fs_conversation:2-xxx (legacy)
-            const fsMatch = urn.match(/fs_conversation:([^,)]+)/);
-            if (fsMatch) {
-              conversationId = fsMatch[1];
-            }
-            // Format: urn:li:messagingThread:2-xxx
-            if (!conversationId) {
-              const threadMatch = urn.match(/messagingThread:([^,)]+)/);
-              if (threadMatch) {
-                conversationId = threadMatch[1];
-              }
-            }
-            // Format: urn:li:msg_conversation:(xxx,2-xxx)
-            if (!conversationId) {
-              const convMatch = urn.match(/,([^)]+)\)/);
-              if (convMatch) {
-                conversationId = convMatch[1];
-              }
-            }
-          }
-
-          if (!conversationId) {
-            console.log('[Content Script] Could not extract conversation ID from:', urn);
-            continue;
-          }
-
-          // Get participant info - handle both legacy and new formats
-          // IMPORTANT: Skip the current user (self) to get the OTHER participant
-          let participantName = 'Unknown';
-          let participantLinkedinId = null;
-          let participantProfileUrl = null;
-          let participantAvatarUrl = null;
-
-          // Try new format first (with *conversationParticipants)
-          const participantRefs = element['*conversationParticipants'] || element['*participants'] || element.participants || [];
-
-          // Collect all participants first, then pick the non-self one
-          const allParticipants = [];
-
-          for (const pRef of participantRefs) {
-            const participant = entityMap[pRef] || (typeof pRef === 'object' ? pRef : null);
-            if (participant) {
-              // New format: participant has *participantProfile
-              const profileRef = participant['*participantProfile'] || participant['*profile'] || participant.profile;
-              const profile = entityMap[profileRef] || participant;
-
-              // Try to get participant info
-              if (profile) {
-                const name = `${profile.firstName || ''} ${profile.lastName || ''}`.trim() || profile.name || 'Unknown';
-                const linkedinId = profile.publicIdentifier;
-                const profileUrl = linkedinId ? `https://www.linkedin.com/in/${linkedinId}/` : null;
-
-                // Get avatar - handle multiple picture formats
-                let avatarUrl = null;
-                const picture = profile.profilePicture?.displayImageReference?.vectorImage ||
-                                (profile.picture?.rootUrl ? profile.picture : null);
-                if (picture?.rootUrl && picture?.artifacts?.length) {
-                  const artifact = picture.artifacts[picture.artifacts.length - 1];
-                  avatarUrl = picture.rootUrl + artifact.fileIdentifyingUrlPathSegment;
-                }
-
-                // Check if this is self (hostIdentityUrn indicates self)
-                const isSelf = participant.hostIdentityUrn || participant.isSelf || false;
-
-                allParticipants.push({
-                  name, linkedinId, profileUrl, avatarUrl, isSelf
-                });
-                continue;
-              }
-
-              // Legacy format: participant has *miniProfile
-              const miniProfileRef = participant['*miniProfile'];
-              const miniProfile = entityMap[miniProfileRef] || participant.miniProfile;
-              if (miniProfile) {
-                const name = `${miniProfile.firstName || ''} ${miniProfile.lastName || ''}`.trim();
-                const linkedinId = miniProfile.publicIdentifier;
-                const profileUrl = linkedinId ? `https://www.linkedin.com/in/${linkedinId}/` : null;
-
-                let avatarUrl = null;
-                const pic = miniProfile.picture;
-                if (pic?.rootUrl && pic?.artifacts?.length) {
-                  const artifact = pic.artifacts[pic.artifacts.length - 1];
-                  avatarUrl = pic.rootUrl + artifact.fileIdentifyingUrlPathSegment;
-                }
-
-                // Check if this is self
-                const isSelf = participant.hostIdentityUrn || participant.isSelf || false;
-
-                allParticipants.push({
-                  name, linkedinId, profileUrl, avatarUrl, isSelf
-                });
-              }
-            }
-          }
-
-          // Pick the OTHER participant (not self)
-          // If we can't determine self, pick the second one (first is usually self in LinkedIn's API)
-          const otherParticipant = allParticipants.find(p => !p.isSelf) ||
-                                   allParticipants[1] ||
-                                   allParticipants[0];
-
-          if (otherParticipant) {
-            participantName = otherParticipant.name;
-            participantLinkedinId = otherParticipant.linkedinId;
-            participantProfileUrl = otherParticipant.profileUrl;
-            participantAvatarUrl = otherParticipant.avatarUrl;
-          }
-
-          // Get last message preview
-          let lastMessagePreview = null;
-
-          // New format: *lastMessage
-          const lastMsgRef = element['*lastMessage'];
-          if (lastMsgRef) {
-            const lastMsg = entityMap[lastMsgRef];
-            if (lastMsg?.body?.text) {
-              lastMessagePreview = lastMsg.body.text;
-            }
-          }
-
-          // Legacy format: *events
-          if (!lastMessagePreview) {
-            const eventsRef = element['*events'];
-            if (eventsRef && eventsRef.length > 0) {
-              const lastEventRef = eventsRef[0];
-              const lastEvent = entityMap[lastEventRef];
-              if (lastEvent?.eventContent) {
-                const msgEvent = lastEvent.eventContent['com.linkedin.voyager.messaging.event.MessageEvent'];
-                if (msgEvent) {
-                  lastMessagePreview = msgEvent.attributedBody?.text || msgEvent.body || null;
-                }
-              }
-            }
-          }
-
-          conversations.push({
-            linkedin_conversation_id: conversationId,
-            participant_name: participantName,
-            participant_linkedin_id: participantLinkedinId,
-            participant_profile_url: participantProfileUrl,
-            participant_avatar_url: participantAvatarUrl,
-            last_message_preview: lastMessagePreview,
-            last_message_at: element.lastActivityAt ? new Date(element.lastActivityAt).toISOString() : null,
-            is_unread: (element.unreadCount || 0) > 0,
-            unread_count: element.unreadCount || 0,
-          });
-        } catch (error) {
-          console.error('[Content Script] Error parsing conversation:', error);
-        }
-      }
-
-      return conversations;
-    };
-
-    syncViaApi()
+    syncConversations()
       .then(conversations => {
         console.log('[Content Script] Sync success:', conversations.length, 'conversations');
         sendResponse({ success: true, conversations });
       })
       .catch(error => {
-        console.error('[Content Script] Sync error:', error);
+        console.error('[Content Script] Sync error:', error.message);
         sendResponse({ success: false, error: error.message });
       });
 
@@ -1561,404 +1427,157 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
 
-  // Check for new messages (polling) - API-based approach
+
+  // Check for new messages — fetches recent events per conversation via REST
   if (message.type === 'CHECK_NEW_MESSAGES') {
-    console.log('[Content Script] 🔍 CHECK_NEW_MESSAGES received');
-    console.log('[Content Script] Current URL:', window.location.href);
-
-    const checkMessagesViaAPI = async () => {
-      const lastKnownState = message.lastKnownState || {}; // { conversationId: lastMessageTimestamp }
-      console.log('[Content Script] Last known state:', Object.keys(lastKnownState).length, 'conversations');
-
-      // Get CSRF token
+    const checkMessages = async () => {
+      const lastKnownState = message.lastKnownState || {};
       const csrfToken = getCsrfToken();
-      if (!csrfToken) {
-        console.log('[Content Script] ❌ No CSRF token found');
-        throw new Error('Not logged in to LinkedIn');
-      }
-      console.log('[Content Script] ✅ CSRF token found');
+      if (!csrfToken) throw new Error('Not logged in to LinkedIn');
 
       const newMessages = [];
       const updatedState = { ...lastKnownState };
+      const profileUrn = await getMyProfileUrn();
 
-      // Get conversation(s) to check
-      const conversations = [];
+      // Collect conversation IDs to check
+      let conversationIds = Object.keys(lastKnownState);
 
-      // Method 1: Get current conversation from URL (most reliable)
+      // Add current conversation from URL
       const urlMatch = window.location.href.match(/\/messaging\/thread\/([^/?]+)/);
-      if (urlMatch) {
-        const convId = urlMatch[1];
-        // Try to get participant name from the page
-        const nameEl = document.querySelector('.msg-entity-lockup__entity-title, .msg-thread__link-to-profile, h2.msg-overlay-bubble-header__title');
-        const participantName = nameEl?.textContent?.trim() || 'Unknown';
-
-        console.log('[Content Script] Current conversation from URL:', convId, '-', participantName);
-        conversations.push({
-          conversationId: convId,
-          participantName: participantName,
-          hasUnread: false
-        });
+      if (urlMatch && !conversationIds.includes(urlMatch[1])) {
+        conversationIds.push(urlMatch[1]);
       }
 
-      // Method 2: Add active conversations passed from background (ones we've messaged)
+      // Add active conversations from background
       const activeConvs = message.activeConversations || [];
-      if (activeConvs.length > 0) {
-        console.log('[Content Script] 📨 Active conversations from background:', activeConvs.length);
-        for (const convId of activeConvs) {
-          if (convId && !conversations.find(c => c.conversationId === convId)) {
-            conversations.push({
-              conversationId: convId,
-              participantName: 'Unknown', // We don't have the name, but that's ok
-              hasUnread: false
-            });
-          }
-        }
+      for (const id of activeConvs) {
+        if (id && !conversationIds.includes(id)) conversationIds.push(id);
       }
 
-      // Method 3: Also check previously synced conversations from storage
+      // Add stored synced conversations
       try {
-        const stored = await new Promise(resolve => {
-          chrome.storage.local.get('synced_conversations', result => resolve(result.synced_conversations || []));
-        });
-
-        for (const conv of stored) {
-          // Don't add duplicates
-          if (conv.conversationId && !conversations.find(c => c.conversationId === conv.conversationId)) {
-            conversations.push(conv);
-          }
+        const stored = await chrome.storage.local.get('synced_conversations');
+        const storedConvs = stored.synced_conversations || [];
+        for (const conv of storedConvs) {
+          const id = conv.conversationId || conv.linkedin_conversation_id;
+          if (id && !conversationIds.includes(id)) conversationIds.push(id);
         }
+      } catch (e) { /* ignore */ }
 
-        if (stored.length > 0) {
-          console.log('[Content Script] Added', stored.length, 'conversations from storage');
-        }
-      } catch (e) {
-        console.log('[Content Script] Could not load stored conversations');
+      // Limit to 10 conversations per check to avoid rate limits
+      conversationIds = conversationIds.slice(0, 10);
+
+      if (conversationIds.length === 0) {
+        return { newMessages: [], updatedState, totalChecked: 0 };
       }
 
-      // Method 4: Fetch recent conversations with unread messages from LinkedIn API
-      // This catches NEW conversations that haven't been synced yet
-      try {
-        const unreadResponse = await linkedInFetch(
-          'https://www.linkedin.com/voyager/api/messaging/conversations?keyVersion=LEGACY_INBOX&q=syncToken&count=10',
-          {
-            headers: {
-              'accept': 'application/vnd.linkedin.normalized+json+2.1',
-              'csrf-token': csrfToken,
-              'x-restli-protocol-version': '2.0.0'
-            }
-          }
-        );
-
-        if (unreadResponse.ok) {
-          const unreadData = await unreadResponse.json();
-          const included = unreadData.included || [];
-
-          // Find conversation entities
-          const convEntities = included.filter(e =>
-            e['$type'] === 'com.linkedin.voyager.messaging.Conversation' ||
-            e.entityUrn?.includes('msg_conversation')
-          );
-
-          let addedCount = 0;
-          for (const conv of convEntities) {
-            // Only add if has unread messages
-            if (conv.unreadCount > 0 || conv.lastActivityAt > (Date.now() - 60000)) {
-              // Extract conversation ID
-              const entityUrn = conv.entityUrn || '';
-              const match = entityUrn.match(/,([^)]+)\)/) || entityUrn.match(/conversation:([^,]+)/);
-              const convId = match ? match[1] : null;
-
-              if (convId && !conversations.find(c => c.conversationId === convId)) {
-                // Try to get participant name
-                let participantName = 'Unknown';
-                const participantRefs = conv['*participants'] || conv.participants || [];
-                for (const ref of participantRefs) {
-                  const participant = included.find(e => e.entityUrn === ref);
-                  if (participant) {
-                    const profileRef = participant['*miniProfile'] || participant['*profile'];
-                    const profile = included.find(e => e.entityUrn === profileRef);
-                    if (profile) {
-                      participantName = `${profile.firstName || ''} ${profile.lastName || ''}`.trim();
-                      break;
-                    }
-                  }
-                }
-
-                conversations.push({
-                  conversationId: convId,
-                  participantName: participantName,
-                  hasUnread: conv.unreadCount > 0
-                });
-                addedCount++;
-              }
-            }
-          }
-
-          if (addedCount > 0) {
-            console.log('[Content Script] Added', addedCount, 'conversations with recent activity from LinkedIn API');
-          }
-        }
-      } catch (e) {
-        console.log('[Content Script] Could not fetch unread conversations:', e.message);
-      }
-
-      console.log('[Content Script] 📋 Total conversations to check:', conversations.length);
-      if (conversations.length > 0) {
-        console.log('[Content Script] Conversations:', conversations.map(c => c.conversationId).join(', '));
-      }
-
-      if (conversations.length === 0) {
-        console.log('[Content Script] ❌ No conversations to check');
-        console.log('[Content Script] Tip: Navigate to a conversation (/messaging/thread/...) or sync inbox first');
-        return { newMessages: [], updatedState: lastKnownState };
-      }
-
-      // Get my profile URN for filtering out my own messages (cached)
-      const myProfileUrn = await getMyProfileUrn();
-      if (myProfileUrn) {
-        console.log('[Content Script] Using profile URN:', myProfileUrn);
-      }
-
-      // Process each conversation to find new messages
-      for (const conv of conversations) {
-        try {
-          const conversationId = conv.conversationId;
-          const participantName = conv.participantName;
-
-          console.log('[Content Script] Processing conversation:', conversationId, '-', participantName);
-
-          // Check if this conversation has new activity since last check
-          const lastKnown = lastKnownState[conversationId] || 0;
-
-          // Try GraphQL first (Waalaxy-style - more reliable), then fallback to REST
-          let msgData = null;
-          let useGraphQL = false;
-
-          // Method 1: GraphQL (Waalaxy-style)
-          if (myProfileUrn) {
-            try {
-              const conversationUrn = `urn:li:msg_conversation:(${myProfileUrn},${conversationId})`;
-              const graphqlUrl = `https://www.linkedin.com/voyager/api/voyagerMessagingGraphQL/graphql?queryId=voyagerMessagingDashMessengerMessages.c7d0ab7f4b411aa8a849fbf8b210facc&variables=(deliveredAt:${Date.now()},conversationUrn:${encodeURIComponent(conversationUrn)},countBefore:20,countAfter:0)`;
-
-              const graphqlResponse = await linkedInFetch(graphqlUrl, {
-                headers: {
-                  'accept': 'application/vnd.linkedin.normalized+json+2.1',
-                  'csrf-token': csrfToken,
-                  'x-restli-protocol-version': '2.0.0'
+      // First check intercepted data (free — no API calls needed)
+      for (const conversationId of conversationIds) {
+        const interceptedMsgs = interceptedData.messagesByConversation[conversationId];
+        if (interceptedMsgs) {
+          const lastKnownTimestamp = lastKnownState[conversationId] || 0;
+          for (const msg of interceptedMsgs) {
+            if (msg.timestamp > lastKnownTimestamp && !msg.isFromMe) {
+              // Format to match what background.js expects
+              newMessages.push({
+                conversationId: msg.conversationId,
+                participantName: msg.senderName || 'Unknown',
+                message: {
+                  content: msg.content,
+                  sender_name: msg.senderName || 'Unknown',
+                  timestamp: msg.timestamp,
+                  sent_at: new Date(msg.timestamp).toISOString(),
+                  linkedin_message_id: msg.linkedinMessageId || null,
+                  is_from_me: false,
                 }
               });
-
-              if (graphqlResponse.ok) {
-                msgData = await graphqlResponse.json();
-                useGraphQL = true;
-                console.log('[Content Script] Using GraphQL for messages');
+              if (msg.timestamp > (updatedState[conversationId] || 0)) {
+                updatedState[conversationId] = msg.timestamp;
               }
-            } catch (e) {
-              console.log('[Content Script] GraphQL failed, trying REST:', e.message);
             }
           }
+        }
+      }
 
-          // Method 2: REST fallback
-          if (!msgData) {
-            const restResponse = await linkedInFetch(
-              `https://www.linkedin.com/voyager/api/messaging/conversations/${conversationId}/events?count=10`,
-              {
-                headers: {
-                  'accept': 'application/vnd.linkedin.normalized+json+2.1',
-                  'csrf-token': csrfToken,
-                  'x-restli-protocol-version': '2.0.0'
-                }
+      // If interceptor found new messages, return early (no API calls needed)
+      if (newMessages.length > 0) {
+        return { newMessages, updatedState, totalChecked: conversationIds.length, source: 'intercepted' };
+      }
+
+      // Fallback: fetch via REST for conversations not covered by interceptor
+      for (const conversationId of conversationIds) {
+        try {
+          const response = await linkedInFetch(
+            `https://www.linkedin.com/voyager/api/messaging/conversations/${conversationId}/events?count=5`,
+            {
+              headers: {
+                'accept': 'application/vnd.linkedin.normalized+json+2.1',
+                'csrf-token': csrfToken,
+                'x-restli-protocol-version': '2.0.0'
               }
-            );
+            }
+          );
 
-            if (restResponse.ok) {
-              msgData = await restResponse.json();
-              console.log('[Content Script] Using REST for messages');
+          if (!response.ok) continue;
+          const data = await response.json();
+
+          const included = data.included || [];
+          const lastKnownTimestamp = lastKnownState[conversationId] || 0;
+
+          // Find message events
+          for (const entity of included) {
+            const isMessage = entity.$type?.includes('MessagingMessage') ||
+                              entity.$type?.includes('Event') ||
+                              entity.body?.text;
+            if (!isMessage || !entity.body?.text) continue;
+
+            const timestamp = entity.createdAt || entity.deliveredAt || 0;
+            if (timestamp <= lastKnownTimestamp) continue;
+
+            // Check if this is from the other person (not us)
+            const senderUrn = entity['*sender'] || entity.sender?.entityUrn || '';
+            const isFromMe = profileUrn && senderUrn.includes(profileUrn.split(':').pop());
+            if (isFromMe) continue;
+
+            const subtype = entity.subtype || entity.eventContent?.['com.linkedin.voyager.messaging.event.MessageEvent']?.subtype || '';
+            if (subtype.includes('OUTBOUND')) continue;
+
+            // Format matches what background.js expects: { conversationId, participantName, message: {...} }
+            newMessages.push({
+              conversationId,
+              participantName: entity.sender?.name || 'Unknown',
+              message: {
+                content: entity.body.text,
+                sender_name: entity.sender?.name || 'Unknown',
+                timestamp: timestamp,
+                sent_at: new Date(timestamp).toISOString(),
+                linkedin_message_id: entity.entityUrn || entity.backendUrn || null,
+                is_from_me: false,
+              }
+            });
+
+            // Update state to latest timestamp
+            if (timestamp > (updatedState[conversationId] || 0)) {
+              updatedState[conversationId] = timestamp;
             }
           }
-
-          if (msgData) {
-            const msgIncluded = msgData.included || [];
-            const msgElements = msgData.data?.elements || msgData.elements || [];
-
-            // Build message entity map
-            const msgEntityMap = {};
-            for (const entity of msgIncluded) {
-              if (entity.entityUrn) msgEntityMap[entity.entityUrn] = entity;
-            }
-
-            // Get message entities - the API endpoint is already filtered by conversation
-            // so we just need to find the message/event entities
-            let messageEntities = [];
-
-            if (useGraphQL) {
-              // GraphQL format - messages are in included array with specific type
-              messageEntities = msgIncluded.filter(e =>
-                e['$type'] === 'com.linkedin.voyager.dash.messaging.MessengerMessage' ||
-                e.entityUrn?.includes('msg_message')
-              );
-              console.log('[Content Script] GraphQL: Found', messageEntities.length, 'message entities');
-            } else {
-              // REST format - events are in elements array
-              if (msgElements.length > 0) {
-                messageEntities = msgElements.filter(e =>
-                  e['$type'] === 'com.linkedin.voyager.messaging.Event' || e.eventContent
-                );
-                console.log('[Content Script] REST elements: Found', messageEntities.length, 'events');
-              }
-              // Fallback: check included array for events
-              if (messageEntities.length === 0) {
-                messageEntities = msgIncluded.filter(e =>
-                  e['$type'] === 'com.linkedin.voyager.messaging.Event'
-                );
-                console.log('[Content Script] REST included fallback: Found', messageEntities.length, 'events');
-              }
-            }
-
-            console.log('[Content Script] Processing', messageEntities.length, 'events for conversation', conversationId);
-
-            // Process messages
-            for (const event of messageEntities) {
-              // Get timestamp (different field names for GraphQL vs REST)
-              const createdAt = event.deliveredAt || event.createdAt;
-              if (!createdAt || createdAt <= lastKnown) continue;
-
-              // Get content (different structure for GraphQL vs REST)
-              let content = '';
-              if (useGraphQL) {
-                content = event.body?.text || '';
-              } else {
-                const eventContent = event.eventContent || {};
-                content = eventContent.attributedBody?.text || eventContent.body || '';
-              }
-              if (!content) continue;
-
-              // Check if from me (skip our own messages)
-              let isFromMe = false;
-              let senderName = participantName;
-
-              if (useGraphQL) {
-                // GraphQL format
-                const senderRef = event['*sender'] || event.sender;
-                const sender = msgEntityMap[senderRef] || event.sender;
-                if (sender) {
-                  const profileRef = sender['*profile'] || sender.profile;
-                  const profile = msgEntityMap[profileRef] || sender;
-                  if (profile?.entityUrn === myProfileUrn) {
-                    isFromMe = true;
-                  }
-                  if (profile) {
-                    senderName = `${profile.firstName || ''} ${profile.lastName || ''}`.trim() || participantName;
-                  }
-                }
-              } else {
-                // REST format
-                const senderUrn = event['*from'] || event.from;
-                const sender = msgEntityMap[senderUrn];
-
-                // Method 1: Check the from field against our profile
-                if (senderUrn && myProfileUrn) {
-                  const senderProfileMatch = senderUrn.match(/fsd_profile:([^,)]+)/);
-                  const myProfileMatch = myProfileUrn.match(/fsd_profile:([^,)]+)/);
-                  if (senderProfileMatch && myProfileMatch && senderProfileMatch[1] === myProfileMatch[1]) {
-                    isFromMe = true;
-                  }
-                }
-
-                // Method 2: Check participant type in sender
-                if (sender) {
-                  const participantRef = sender['*messagingMember'] || sender['*participant'];
-                  const participant = msgEntityMap[participantRef] || sender;
-                  if (participant?.participantType === 'SELF' || participant?.isSelf) {
-                    isFromMe = true;
-                  }
-                }
-
-                // Method 3: Check event subtype
-                if (event.subtype === 'MEMBER_TO_MEMBER_OUTBOUND') {
-                  isFromMe = true;
-                }
-
-                // Get sender name
-                if (sender) {
-                  const miniProfileUrn = sender['*miniProfile'];
-                  const miniProfile = msgEntityMap[miniProfileUrn] || sender?.miniProfile;
-                  if (miniProfile) {
-                    senderName = `${miniProfile.firstName || ''} ${miniProfile.lastName || ''}`.trim();
-                  }
-                }
-              }
-
-              // Skip messages from me
-              if (isFromMe) {
-                console.log('[Content Script] Skipping message from me:', content.substring(0, 30));
-                continue;
-              }
-
-              // Extract message ID
-              const messageUrn = event.entityUrn || '';
-              const linkedinMessageId = messageUrn;
-
-              console.log('[Content Script] Found incoming message:', content.substring(0, 50));
-
-              newMessages.push({
-                conversationId,
-                participantName,
-                linkedin_message_id: linkedinMessageId,
-                message: {
-                  content,
-                  is_from_me: false,
-                  sender_name: senderName,
-                  sent_at: new Date(createdAt).toISOString(),
-                  linkedin_message_id: linkedinMessageId
-                }
-                });
-              }
-            }
-
-          // Update state with current timestamp
-          updatedState[conversationId] = Date.now();
         } catch (e) {
-          console.log('[Content Script] Error processing conversation:', e);
+          // Skip failed conversations silently
         }
       }
 
-      // Filter out duplicates and messages we sent
-      const filteredMessages = [];
-      const seenIds = new Set();
-
-      for (const msg of newMessages) {
-        const msgId = msg.linkedin_message_id || `${msg.conversationId}-${msg.message.content}`;
-        if (!seenIds.has(msgId)) {
-          seenIds.add(msgId);
-          filteredMessages.push(msg);
-        }
-      }
-
-      console.log('[Content Script] Found', filteredMessages.length, 'new messages via API');
-
-      return {
-        newMessages: filteredMessages,
-        updatedState
-      };
+      return { newMessages, updatedState, totalChecked: conversationIds.length };
     };
 
-    checkMessagesViaAPI()
-      .then(result => {
-        console.log('[Content Script] API check complete:', result.newMessages.length, 'new messages');
-        sendResponse({
-          success: true,
-          newMessages: result.newMessages,
-          updatedState: result.updatedState
-        });
-      })
+    checkMessages()
+      .then(result => sendResponse({ success: true, ...result }))
       .catch(error => {
-        console.error('[Content Script] API check error:', error);
         sendResponse({ success: false, error: error.message, newMessages: [], updatedState: {} });
       });
 
     return true;
   }
+
 
   // Get current user profile URL (for account verification)
   if (message.type === 'GET_CURRENT_USER') {

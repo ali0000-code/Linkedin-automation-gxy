@@ -6,11 +6,17 @@
  */
 import { ref, onMounted, onUnmounted } from 'vue'
 
+// Chrome extension IDs are exactly 32 lowercase letters (a-p)
+const isValidExtensionId = (id) => typeof id === 'string' && /^[a-p]{32}$/.test(id)
+
 const getExtensionId = () => {
-  if (window.__LINKEDIN_AUTOMATION_EXTENSION_ID__) {
-    return window.__LINKEDIN_AUTOMATION_EXTENSION_ID__
-  }
-  return localStorage.getItem('linkedin_automation_extension_id')
+  const windowId = window.__LINKEDIN_AUTOMATION_EXTENSION_ID__
+  if (isValidExtensionId(windowId)) return windowId
+
+  const storedId = localStorage.getItem('linkedin_automation_extension_id')
+  if (isValidExtensionId(storedId)) return storedId
+
+  return null
 }
 
 const sendMessage = (type, data = {}) => {
@@ -20,7 +26,7 @@ const sendMessage = (type, data = {}) => {
       reject(new Error('Extension not found.'))
       return
     }
-    if (typeof chrome === 'undefined' || !chrome.runtime) {
+    if (typeof chrome === 'undefined' || !chrome.runtime?.sendMessage) {
       reject(new Error('Chrome runtime not available.'))
       return
     }
